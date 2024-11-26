@@ -116,6 +116,17 @@ class ViewCompanyView(generics.ListAPIView, generics.RetrieveAPIView):
         - Regular users can view only the companies they created or are linked to.
         - Super admins can view all companies.
         """
+        company_id = self.request.headers.get('Company-ID')
+        if company_id:
+            try:
+                company = Company.objects.get(id=company_id)
+                if self.request.user.is_superuser or company.creator == self.request.user:
+                    return Company.objects.filter(id=company_id)
+                else:
+                    raise PermissionDenied("You do not have the required permissions to view this company.")
+            except Company.DoesNotExist:
+                raise PermissionDenied("Company not found.")
+        
         if self.request.user.is_superuser:
             return Company.objects.all()
         return Company.objects.filter(creator=self.request.user)
@@ -133,7 +144,8 @@ class ViewCompanyView(generics.ListAPIView, generics.RetrieveAPIView):
             raise PermissionDenied("You do not have the required permissions to view this company.")
 
         return company
-
+    
+    
 class AddCompanyView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = CompanySerializer

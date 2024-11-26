@@ -30,6 +30,13 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = []
 
 ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000']
+
+from corsheaders.defaults import default_headers
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'Company-ID',
+]
+
 CORS_ALLOWED_ORIGINS = [
     'https://frontend-eight-wheat-85.vercel.app',
     'https://frontend-i2hcwynk4-yabashs-projects.vercel.app',
@@ -37,6 +44,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:8080',   # Example with localhost IP
     'http://localhost:3000',
 ]
+
+
 
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
