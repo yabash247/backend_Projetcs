@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework import generics, status
 from users.models import User, UserProfile
 from .serializers import UserSerializer, CustomTokenObtainPairSerializer, UserProfileSerializer
@@ -87,6 +88,23 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
      
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_current_user(request):
+    """
+    Endpoint to return the currently logged-in user's data
+    """
+    user = request.user
+    if user.is_authenticated:
+        return Response({
+            'id': user.id,
+            'name': user.first_name + ' ' + user.last_name if user.first_name and user.last_name else user.username,
+            'email': user.email,
+        })
+    else:
+        return Response({'error': 'User is not authenticated'}, status=401)
+
 
     '''
     
