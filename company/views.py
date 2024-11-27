@@ -1,7 +1,11 @@
 from rest_framework import generics, permissions
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from .models import Company, Authority, Staff, StaffLevels
 from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer
+from django.shortcuts import get_object_or_404
 
 def has_permission(user, company, model_name, action, min_level=1):
     """
@@ -49,6 +53,30 @@ def has_permission(user, company, model_name, action, min_level=1):
     return True
 
 # *******  Views for Authority Model ***********
+
+class AuthorityView(APIView):
+    
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, company_id):
+        # Retrieve the company instance
+        company = get_object_or_404(Company, id=company_id)
+
+        # Access control
+        user = request.user
+        if not (
+            user.is_superuser or 
+            user == company.creator or 
+            (Staff.objects.filter(user=user, company=company).exists() and
+             Staff.objects.get(user=user, company=company).has_permission())
+        ):
+            raise PermissionDenied("You do not have access to this resource.")
+
+        # Filter Authority objects by the provided company ID
+        authorities = Authority.objects.filter(company=company)
+        serializer = AuthoritySerializer(authorities, many=True)
+        return Response(serializer.data)
+
 
 class AddAuthorityView(generics.CreateAPIView):
     serializer_class = AuthoritySerializer

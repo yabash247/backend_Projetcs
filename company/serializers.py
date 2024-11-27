@@ -21,6 +21,7 @@ class StaffSerializer(serializers.ModelSerializer):
 class AuthoritySerializer(serializers.ModelSerializer):
     class Meta:
         model = Authority
+        #fields = '__all__'
         fields = [
             'id', 'model_name', 'company', 'requested_by', 'approver',
             'view', 'add', 'edit', 'delete', 'accept', 'approve', 'created'

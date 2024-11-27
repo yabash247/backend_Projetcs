@@ -1,14 +1,22 @@
-from django.urls import path
-from .views import AddCompanyView, EditCompanyView, DeleteCompanyView, ViewCompanyView, AddAuthorityView, EditAuthorityView, DeleteAuthorityView, ViewStaffView, AddStaffView, EditStaffView, DeleteStaffView
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import AddCompanyView, EditCompanyView, DeleteCompanyView, ViewCompanyView, AuthorityView, AddAuthorityView, EditAuthorityView, DeleteAuthorityView, ViewStaffView, AddStaffView, EditStaffView, DeleteStaffView
 from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView
 
+router = DefaultRouter()
+#router.register(r'authorities', AuthorityViewSet)
+
 urlpatterns = [
+
+    #path('api/', include(router.urls)),
+
     path('add/', AddCompanyView.as_view(), name='add-company'),
     path('<int:pk>/edit/', EditCompanyView.as_view(), name='edit-company'),
     path('<int:pk>/delete/', DeleteCompanyView.as_view(), name='delete-company'),
     path('<int:pk>/', ViewCompanyView.as_view(), name='view-company'),  # View a single company
     path('', ViewCompanyView.as_view(), name='list-companies'),  
 
+    path('authorities/<int:company_id>/', AuthorityView.as_view(), name='authority_view'),
     path('authorities/add/', AddAuthorityView.as_view(), name='add-authority'),
     path('authorities/<int:pk>/edit/', EditAuthorityView.as_view(), name='edit-authority'),
     path('authorities/<int:pk>/delete/', DeleteAuthorityView.as_view(), name='delete-authority'),
