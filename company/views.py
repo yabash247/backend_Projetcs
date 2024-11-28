@@ -1,11 +1,12 @@
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 from .models import Company, Authority, Staff, StaffLevels
 from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer
 from django.shortcuts import get_object_or_404
+from rest_framework.decorators import action
 
 def has_permission(user, company, model_name, action, min_level=1):
     """
@@ -365,3 +366,32 @@ class DeleteStaffLevelView(generics.DestroyAPIView):
             raise PermissionDenied("You do not have permission to delete this staff level record.")
 
         instance.delete()
+
+
+
+        
+class StaffLevelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, company_id, user_id):
+        # Authenticate user and retrieve the company
+        company = get_object_or_404(Company, id=company_id)
+        user = request.user
+
+        # Check user permissions
+        if not (
+            user.is_superuser or
+            user == company.creator or
+            (Staff.objects.filter(user=user, company=company).exists() and
+             Staff.objects.get(user=user, company=company).has_permission())
+        ):
+            raise PermissionDenied("You do not have access to this resource.")
+
+        # Get staff level information
+        staff_level = StaffLevels.objects.filter(company=company_id, user=user_id).first()
+        if not staff_level:
+            raise NotFound(f"Staff level data not found for user {user_id} in company {company_id}.")
+
+        # Serialize and return the data
+        serializer = StaffLevelsSerializer(staff_level)
+        return Response(serializer.data)

@@ -4,10 +4,13 @@ from .models import Company, Authority, Staff, StaffLevels
 class StaffLevelsSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffLevels
-        fields = [
-            'id', 'company', 'user', 'level', 'created_date', 'approver', 'status'
-        ]
-        read_only_fields = ['id', 'created_date', 'approver']
+        fields = '__all__'
+        read_only_fields = ['id', 'user ', 'company ']
+
+    def validate(self, data):
+        if not isinstance(data, StaffLevels):
+            raise serializers.ValidationError("Expected instance of StaffLevels, got {}".format(type(data).__name__))
+        return data
 
 class StaffSerializer(serializers.ModelSerializer):
     class Meta:
