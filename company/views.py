@@ -264,6 +264,11 @@ class AddStaffView(generics.CreateAPIView):
         model_name = 'staff'  # Assuming the model name is 'staff'
         user_id = serializer.validated_data['user']
 
+        # Check if the specified user exists
+        user_exists, userData = check_user_exists(user_id)
+        if not user_exists:
+            raise PermissionDenied("The specified user does not exist.")
+
         # Ensure the user performing the request has permission to add staff
         if not has_permission(self.request.user, company, model_name, action):
             raise PermissionDenied("You do not have permission to add staff to this company.")
@@ -272,9 +277,11 @@ class AddStaffView(generics.CreateAPIView):
         if Staff.objects.filter(user=user_id, company=company).exists():
             raise ValidationError("This user is already a staff member of the specified company.")
 
-        # Automatically set the added_by field to the authenticated user
-        serializer.save(added_by=self.request.user, approved_by=self.request.user)
+        # Use the user's email if no work_email is provided
+        work_email = serializer.validated_data.get('work_email', userData.email)
 
+        # Automatically set the added_by and approved_by fields to the authenticated user
+        serializer.save(added_by=self.request.user, approved_by=self.request.user, work_email=work_email)
 
 
 class EditStaffView(generics.RetrieveUpdateAPIView):
