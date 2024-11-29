@@ -7,10 +7,7 @@ class StaffLevelsSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'user ', 'company ']
 
-    def validate(self, data):
-        if not isinstance(data, StaffLevels):
-            raise serializers.ValidationError("Expected instance of StaffLevels, got {}".format(type(data).__name__))
-        return data
+    
 
 class StaffSerializer(serializers.ModelSerializer):
     class Meta:

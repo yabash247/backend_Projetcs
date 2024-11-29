@@ -154,7 +154,7 @@ class Staff(models.Model):
     company = models.ForeignKey('Company', on_delete=models.CASCADE, related_name='staff')  # Link to company model
     work_phone = models.CharField(
         max_length=20,
-        unique=True,
+        #unique=True,
         blank=True,
         null=True,
         validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$', message="Phone number must be valid and between 9-15 digits.")]
@@ -163,7 +163,7 @@ class Staff(models.Model):
         max_length=254,
         blank=True,
         null=True,
-        unique=True
+        #unique=Trueself.work_phone
     )  # Optional work email
     date_created = models.DateTimeField(default=now)  # Auto timestamp for creation
     joined_company_date = models.DateTimeField(
@@ -197,11 +197,11 @@ class Staff(models.Model):
         """
         # Ensure work_email and work_phone are unique across staff records
         if self.work_email:
-            if Staff.objects.filter(work_email=self.work_email).exclude(id=self.id).exists():
-                raise ValidationError("This work email is already assigned to another staff.")
+            if Staff.objects.filter(work_email=self.work_email, company=self.company).exclude(id=self.id).exists():
+                raise ValidationError(f"This work email:{self.work_email} is already assigned to another staff.")
         if self.work_phone:
-            if Staff.objects.filter(work_phone=self.work_phone).exclude(id=self.id).exists():
-                raise ValidationError("This work phone is already assigned to another staff.")
+            if Staff.objects.filter(work_phone=self.work_phone, company=self.company).exclude(id=self.id).exists():
+                raise ValidationError(f"This work phone:{self.work_phone} is already assigned to another staff.")
 
     def save(self, *args, **kwargs):
         self.full_clean()  # Run validations
@@ -240,6 +240,6 @@ def ensure_unique_active_status(sender, instance, **kwargs):
             company=instance.company, 
             user=instance.user,
             status='active'
-        ).update(status='inactive')
+        ).exclude(pk=instance.pk).update(status='inactive')
 
 

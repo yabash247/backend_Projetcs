@@ -7,6 +7,11 @@ from .models import Company, Authority, Staff, StaffLevels
 from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
+from company.utils import check_user_exists
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 def has_permission(user, company, model_name, action, min_level=1):
     """
@@ -52,6 +57,7 @@ def has_permission(user, company, model_name, action, min_level=1):
         raise PermissionDenied(f"Insufficient authority level to perform the '{action}' action.")
 
     return True
+
 
 # *******  Views for Authority Model ***********
 
@@ -248,23 +254,28 @@ class AddStaffView(generics.CreateAPIView):
     serializer_class = StaffSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+
     def perform_create(self, serializer):
+        
         # Extract company and user data
         company = serializer.validated_data['company']
-        user = serializer.validated_data['user']
+        #user = serializer.validated_data['user']
         action = 'add'  # The action for this endpoint is 'add'
         model_name = 'staff'  # Assuming the model name is 'staff'
+        user_id = serializer.validated_data['user']
 
         # Ensure the user performing the request has permission to add staff
         if not has_permission(self.request.user, company, model_name, action):
             raise PermissionDenied("You do not have permission to add staff to this company.")
 
         # Check if the user is already a staff member of the company
-        if Staff.objects.filter(user=user, company=company).exists():
+        if Staff.objects.filter(user=user_id, company=company).exists():
             raise ValidationError("This user is already a staff member of the specified company.")
 
         # Automatically set the added_by field to the authenticated user
         serializer.save(added_by=self.request.user, approved_by=self.request.user)
+
+
 
 class EditStaffView(generics.RetrieveUpdateAPIView):
     serializer_class = StaffSerializer
@@ -317,35 +328,65 @@ class AddStaffLevelView(generics.CreateAPIView):
         company = serializer.validated_data['company']
         action = 'add'  # The action for this endpoint is 'add'
         model_name = 'stafflevels'  # Assuming the model name is 'stafflevels'
+        user_id = serializer.validated_data['user_id']
 
         if not has_permission(self.request.user, company, model_name, action):
             raise PermissionDenied("You do not have permission to add a staff level to this company.")
         
-        # Check if the target user is a staff member of the company
-        if not Staff.objects.filter(user=self.request.user, company=company).exists():
+        # Check if the specified user exists
+        user_exists, user = check_user_exists(user_id)
+        if not user_exists:
+            raise PermissionDenied("The specified user does not exist.")
+
+        # Check if the specified user is a staff member of the company
+        if not Staff.objects.filter(user=user, company=company).exists():
             raise PermissionDenied("The specified user is not a staff member of this company.")
 
         # Automatically set the approver field to the authenticated user
+        logger.debug(f"Saving serializer with data: {serializer.validated_data}")
         serializer.save(approver=self.request.user)
 
 
 class EditStaffLevelView(generics.RetrieveUpdateAPIView):
     serializer_class = StaffLevelsSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'id'  # Use 'id' to look up the StaffLevels instance
 
     def get_queryset(self):
         return StaffLevels.objects.all()
 
+    def get_serializer(self, *args, **kwargs):
+        # Get the serializer instance
+        serializer_class = self.get_serializer_class()
+        kwargs['context'] = self.get_serializer_context()
+        
+        # If updating, exclude the 'user' field
+        if self.request.method in ['PUT', 'PATCH']:
+            kwargs['partial'] = True
+            serializer = serializer_class(*args, **kwargs)
+            serializer.fields.pop('user', None)
+            return serializer
+        
+        return serializer_class(*args, **kwargs)
+
     def perform_update(self, serializer):
-        staff_level = self.get_object()
-        company = staff_level.company
+        # Ensure the user has the permission to edit the staff level
+        company = serializer.validated_data.get('company', self.get_object().company)
         action = 'edit'  # The action for this endpoint is 'edit'
         model_name = 'stafflevels'  # Assuming the model name is 'stafflevels'
+        specified_user = serializer.validated_data.get('user', self.get_object().user)
 
-        # Check if the user has permission to edit the staff level
         if not has_permission(self.request.user, company, model_name, action):
-            raise PermissionDenied("You do not have permission to edit this staff level record.")
+            raise PermissionDenied("You do not have permission to edit this staff level.")
 
+        # Check if the specified user is a staff member of the company
+        if not Staff.objects.filter(user=specified_user, company=company).exists():
+            raise PermissionDenied("The specified user is not a staff member of this company.")
+
+        # Log the data being updated
+        logger.debug(f"Updating serializer with data: {serializer.validated_data}")
+        
+        # Perform the update
         serializer.save()
 
 
@@ -366,7 +407,6 @@ class DeleteStaffLevelView(generics.DestroyAPIView):
             raise PermissionDenied("You do not have permission to delete this staff level record.")
 
         instance.delete()
-
 
 
         

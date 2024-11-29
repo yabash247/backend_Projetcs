@@ -29,7 +29,7 @@ urlpatterns = [
 
     path('staff/stafflevels/<int:company_id>/<int:user_id>/', StaffLevelView.as_view(), name='staff_level_view'),
     path('stafflevels/add/', AddStaffLevelView.as_view(), name='add-stafflevel'),
-    path('stafflevels/<int:pk>/edit/', EditStaffLevelView.as_view(), name='edit-stafflevel'),
+    path('stafflevels/<int:pk>/edit/<int:id>/', EditStaffLevelView.as_view(), name='edit-stafflevel'),
     path('stafflevels/<int:pk>/delete/', DeleteStaffLevelView.as_view(), name='delete-stafflevel'),
 
 
