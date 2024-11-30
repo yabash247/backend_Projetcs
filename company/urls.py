@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import AddCompanyView, EditCompanyView, DeleteCompanyView, ViewCompanyView, AuthorityView, AddAuthorityView, EditAuthorityView, DeleteAuthorityView, ViewStaffView, AddStaffView, EditStaffView, DeleteStaffView
-from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView
+from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView, BranchListCreateView, BranchDetailView
 
 router = DefaultRouter()
 #router.register(r'authorities', AuthorityViewSet)
@@ -32,6 +32,7 @@ urlpatterns = [
     path('stafflevels/<int:pk>/edit/<int:id>/', EditStaffLevelView.as_view(), name='edit-stafflevel'),
     path('stafflevels/<int:pk>/delete/', DeleteStaffLevelView.as_view(), name='delete-stafflevel'),
 
-
+    path('branches/', BranchListCreateView.as_view(), name='branch-list-create'),
+    path('branches/<int:pk>/', BranchDetailView.as_view(), name='branch-detail'),
 
 ]

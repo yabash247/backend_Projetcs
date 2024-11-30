@@ -3,12 +3,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
-from .models import Company, Authority, Staff, StaffLevels
+from .models import Company, Authority, Staff, StaffLevels, Branch
+from .serializers import BranchSerializer
 from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from company.utils import check_user_exists
 import logging
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -442,3 +444,36 @@ class StaffLevelView(APIView):
         # Serialize and return the data
         serializer = StaffLevelsSerializer(staff_level)
         return Response(serializer.data)
+    
+
+
+
+
+
+
+from .permissions import IsBranchPermission
+
+class BranchListCreateView(generics.ListCreateAPIView):
+    """
+    List all branches or create a new branch.
+    """
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [IsAuthenticated, IsBranchPermission]
+
+    def get_queryset(self):
+        # Optionally filter by company if provided in query parameters
+        company_id = self.request.query_params.get("company")
+        if company_id:
+            return Branch.objects.filter(company_id=company_id)
+        return super().get_queryset()
+
+
+class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific branch.
+    """
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [IsAuthenticated, IsBranchPermission]
+

@@ -146,7 +146,22 @@ class Company(models.Model):
                 raise ValidationError("Only super admins can change the company status.")
         super().save(*args, **kwargs)
 
-    
+
+class Branch(models.Model):
+    """
+    Tracks all farms/branches of a company.
+    Auto-populates with details from the referenced farm in the `bsf` app.
+    """
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="branches")
+    name = models.CharField(max_length=255)
+    branch_id = models.IntegerField(unique=True)  # Stores the ID of the related farm in the `bsf` app
+    status = models.CharField(max_length=20)  # Matches the status of the farm in the `bsf` app
+    appName = models.CharField(max_length=255, default="bsf")  # Referenced app name
+    modelName = models.CharField(max_length=255, default="Farm")  # Referenced model name
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.company.name} ({self.status})"  
 
 
 class Staff(models.Model):

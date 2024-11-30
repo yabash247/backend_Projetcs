@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Company, Staff, Authority
+from .models import Company, Staff, Authority, Branch
 
 @admin.register(Authority)
 class AuthorityAdmin(admin.ModelAdmin):
@@ -20,3 +20,10 @@ class StaffAdmin(admin.ModelAdmin):
     list_filter = ('company', 'date_created')  # Filter by company and creation date
     search_fields = ('user__username', 'company__name', 'work_email')  # Enable search by user, company, or email
     ordering = ('-date_created',)  # Sort by newest first
+
+
+@admin.register(Branch)
+class BranchAdmin(admin.ModelAdmin):
+    list_display = ("name", "company", "branch_id", "status", "appName", "modelName", "created_at")
+    search_fields = ("name", "company__name", "branch_id", "status", "appName", "modelName")
+    list_filter = ("company", "status", "created_at", "appName", "modelName")

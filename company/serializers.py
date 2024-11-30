@@ -1,5 +1,42 @@
 from rest_framework import serializers
-from .models import Company, Authority, Staff, StaffLevels
+from .models import Company, Authority, Staff, StaffLevels, Branch
+from django.apps import apps
+
+class BranchSerializer(serializers.ModelSerializer):
+    associated_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Branch
+        fields = ['id', 'name', 'company', 'branch_id', 'status', 'appName', 'modelName', 'created_at', 'associated_data']
+
+    def get_associated_data(self, obj):
+        """
+        Dynamically fetch the associated model information.
+        """
+        try:
+            # Dynamically load the model class
+            model_class = apps.get_model(app_label=obj.appName, model_name=obj.modelName)
+
+            # Fetch the associated instance using branch_id
+            associated_instance = model_class.objects.get(id=obj.branch_id)
+
+            # Serialize the associated instance
+            if hasattr(associated_instance, 'to_dict'):
+                # If the model has a `to_dict` method, use it
+                return associated_instance.to_dict()
+            else:
+                # If not, serialize a subset of its fields manually
+                return {
+                    'id': associated_instance.id,
+                    'name': getattr(associated_instance, 'name', None),
+                    'status': getattr(associated_instance, 'status', None),
+                    'created_at': getattr(associated_instance, 'created_at', None),
+                }
+        except Exception as e:
+            # Return an error message if fetching fails
+            return {"error": str(e)}
+
+
 
 class StaffLevelsSerializer(serializers.ModelSerializer):
     class Meta:
