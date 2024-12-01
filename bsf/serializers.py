@@ -3,9 +3,11 @@
 from rest_framework import serializers
 from .models import Farm, StaffMember
 from company.models import Company
+from company.models import Staff
+from users.models import User
 from company.utils import has_permission
-from rest_framework.exceptions import PermissionDenied
-from company.serializers import CompanySerializer 
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from company.serializers import CompanySerializer # Import the CompanySerializer for nested serialization
 
 
 class FarmSerializer(serializers.ModelSerializer):
@@ -69,37 +71,116 @@ class StaffMemberSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def validate(self, data):
-        # Validate the assigned user is a staff member of the company
+        """
+        Perform validation on the data before saving.
+        """
+        # Extract data fields
         user = data.get('user', self.instance.user if self.instance else None)
         company = data.get('company', self.instance.company if self.instance else None)
         farm = data.get('farm', self.instance.farm if self.instance else None)
+        position = data.get('position', self.instance.position if self.instance else None)
+        level = data.get('level', self.instance.level if self.instance else None)
+        status = data.get('status', self.instance.status if self.instance else 'active')
 
-        if not user.is_staff:
-            raise serializers.ValidationError("The assigned user must be a staff member of the company.")
+        # 1. Check if the user is valid
+        if not User.objects.filter(id=user.id).exists():
+            raise ValidationError({"user": "The specified user does not exist."})
 
-        # Check if the user is associated with the company
-        if not user.company_set.filter(id=company.id).exists():
-            raise serializers.ValidationError("The assigned user is not a staff member of this company.")
+        # 2. Check if the user is a staff member of the company
+        if not Staff.objects.filter(user=user, company=company).exists():
+            raise ValidationError({"user": "The specified user is not a staff member of the company."})
 
-        # Ensure the farm belongs to the company
-        if farm.company.id != company.id:
-            raise serializers.ValidationError("The farm does not belong to the specified company.")
+        # 3. Check if the company is valid
+        if not Company.objects.filter(id=company.id).exists():
+            raise ValidationError({"company": "The specified company does not exist."})
+
+        # 4. Check if the farm is valid
+        if not Farm.objects.filter(id=farm.id).exists():
+            raise ValidationError({"farm": "The specified farm does not exist."})
+
+        # 5. Check if the farm belongs to the company
+        if farm.company_id != company.id:
+            raise ValidationError({"farm": "The specified farm does not belong to the company."})
+
+        # 6. Check for duplicate active entries
+        duplicate_active = StaffMember.objects.filter(
+            user=user,
+            company=company,
+            farm=farm,
+            position=position,
+            level=level,
+            status='active'
+        )
+        if duplicate_active.exists():
+            raise ValidationError({
+                "detail": "A staff member with the same user, company, farm, position, level, and active status already exists."
+            })
 
         return data
 
+    def create(self, validated_data):
+        """
+        Handle the creation of a new StaffMember instance.
+        """
+        user = validated_data.get('user')
+        company = validated_data.get('company')
+        farm = validated_data.get('farm')
+        position = validated_data.get('position')
+        level = validated_data.get('level')
+
+        # 7. Handle case where user exists with different position/level
+        existing_staff = StaffMember.objects.filter(user=user, company=company, farm=farm, status='active').exclude(
+            position=position, level=level
+        )
+
+        if existing_staff.exists():
+            # Deactivate existing staff members
+            existing_staff.update(status='inactive')
+
+        # Save the new instance
+        return super().create(validated_data)
+
     def update(self, instance, validated_data):
-        # Check if the new request matches the current farm, company, and status
-        new_farm = validated_data.get('farm', instance.farm)
-        new_company = validated_data.get('company', instance.company)
-        new_status = validated_data.get('status', instance.status)
+        """
+        Handle updates to an existing StaffMember instance.
+        """
+        user = validated_data.get('user', instance.user)
+        company = validated_data.get('company', instance.company)
+        farm = validated_data.get('farm', instance.farm)
+        position = validated_data.get('position', instance.position)
+        level = validated_data.get('level', instance.level)
 
-        # If farm, company, and status are the same, set the previous status to inactive
-        if new_farm == instance.farm and new_company == instance.company and new_status == instance.status:
-            instance.status = 'inactive'
+        # Check if the new data matches an existing active entry
+        duplicate_active = StaffMember.objects.filter(
+            user=user,
+            company=company,
+            farm=farm,
+            position=position,
+            level=level,
+            status='active'
+        ).exclude(pk=instance.pk)
 
-        # Update other fields with new values
+        if duplicate_active.exists():
+            raise ValidationError({
+                "detail": "A staff member with the same user, company, farm, position, level, and active status already exists."
+            })
+
+        # Handle case where existing entries need to be deactivated
+        existing_staff = StaffMember.objects.filter(user=user, company=company, farm=farm, status='active').exclude(
+            position=position, level=level
+        )
+
+        if existing_staff.exists():
+            # Deactivate existing staff members
+            existing_staff.update(status='inactive')
+
+        # Update instance fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
         instance.save()
         return instance
+
+
+
+

@@ -9,7 +9,7 @@ urlpatterns = [
     path('farms/edit/<int:pk>/', FarmPutViews.as_view(), name='farm-edit-and-delete'),
 
     # Staff Member URLs
-    path('farms/staff-members/', StaffMemberListCreateView.as_view(), name='staff-member-list-create'),
-    path('farms/staff-members/<int:pk>/', StaffMemberDetailView.as_view(), name='staff-member-detail'),
-
+    path('farms/staff-members/add/', StaffMemberListCreateView.as_view(), name='staff-member-list-create'),
+    path('branch/staff-members/', StaffMemberDetailView.as_view(), name='staff-member-detail'),
+    
 ]

@@ -9,14 +9,14 @@ class AuthorityAdmin(admin.ModelAdmin):
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'phone', 'status', 'created_date')  # Fields displayed in admin list
+    list_display = ('id', 'name', 'email', 'phone', 'status', 'created_date')  # Fields displayed in admin list
     list_filter = ('status', 'created_date')  # Filter options for status and created date
     search_fields = ('name', 'email')  # Searchable fields
     ordering = ('-created_date',)  # Default ordering
 
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
-    list_display = ('user', 'company', 'work_email', 'work_phone', 'date_created', 'added_by', 'approved_by')
+    list_display = ('id', 'user', 'company', 'work_email', 'work_phone', 'date_created', 'added_by', 'approved_by')
     list_filter = ('company', 'date_created')  # Filter by company and creation date
     search_fields = ('user__username', 'company__name', 'work_email')  # Enable search by user, company, or email
     ordering = ('-date_created',)  # Sort by newest first

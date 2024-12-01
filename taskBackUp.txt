@@ -1,0 +1,35 @@
+
+
+create a def validate function for the StaffMember model serializer:
+            1. Check if user provided in data.get, is a valid user in users.model import User 
+            2. Check if user is a staff (Staff(models.Model)) of company (companyId)
+            3. Check if company provided in data.get, is valid (Company(models.Model))
+            4. Check if farrm provided in data.get, is valid (class Farm(models.Model))
+            5. Check in (class Farm(models.Model)) if farm belongs to company 
+            6. if all true create/save data
+            7. If exisitng user with same company, same farm, same position, same level and same status(active) as new do not save. send waring
+            8. If exisitng user with same company, same farm, but different position, and/or level, change exisitng status to inactive and save new
+            9. Run has_permission function. (from company.utils import has_permission)
+            
+create comprehensive implementation of all the required updates in the relevant files
+
+Create Endpoint Views to Retrieve, update, or delete a specific staff member:
+    Retrieve all staff members of comany and farm instance if not userID is provided. 
+
+Important Instruction:
+    1.The changes should be made in the same class, preserving the original implementation structure.
+
+Create StaffMember Slice 
+    1a. appName needs to be sent when requesting staffMember slice
+            api end point is : ${backendURL}/api/${appName}/branch/?company=${companyId}&farm=${farmId}&user=${userId}. 
+            &user=${userId} as optional.
+    1. aceesstoken needed in api endpoint request,  
+    2. aceesstoken should be requested in the slice by Rootstate
+    3. Create needed state as well.
+    4. provide app.tsx update 
+Create StaffMember List component 
+    1. Provide an amazing material deisgn display
+    2. 
+
+Exisiting data:
+        
