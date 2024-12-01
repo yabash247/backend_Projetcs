@@ -4,6 +4,7 @@ from django.apps import apps
 
 class BranchSerializer(serializers.ModelSerializer):
     associated_data = serializers.SerializerMethodField()
+    #appName = serializers.CharField(source='app_name')
 
     class Meta:
         model = Branch

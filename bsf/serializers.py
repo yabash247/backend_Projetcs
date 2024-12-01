@@ -5,15 +5,39 @@ from .models import Farm, StaffMember
 from company.models import Company
 from company.utils import has_permission
 from rest_framework.exceptions import PermissionDenied
+from company.serializers import CompanySerializer 
 
 
 class FarmSerializer(serializers.ModelSerializer):
-    creatorId = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    associated_company = serializers.SerializerMethodField()
 
     class Meta:
         model = Farm
-        fields = '__all__'
+        fields = [
+            'id',
+            'name',
+            'description',
+            'profile_image',
+            'background_image',
+            'established_date',
+            'status',
+            'creatorId',
+            'associated_company',  # Include associated company details
+        ]
 
+    def get_associated_company(self, obj):
+        """
+        Fetch the company details if a companyID is provided.
+        """
+        company_id = self.context.get('companyID')
+        if company_id:
+            try:
+                company = Company.objects.get(id=company_id)
+                return CompanySerializer(company).data
+            except Company.DoesNotExist:
+                return None
+        return None
+    
     def update(self, instance, validated_data):
         # Handle `established_date`: Use existing value if not provided
         if 'established_date' not in validated_data:

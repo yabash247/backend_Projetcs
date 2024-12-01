@@ -1,6 +1,8 @@
 # views.py
 from rest_framework import generics, permissions
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.exceptions import NotFound, PermissionDenied
 from .models import Farm, StaffMember
 from company.models import Company  # Import the Company model
 from .serializers import FarmSerializer, StaffMemberSerializer
@@ -74,45 +76,31 @@ class FarmListCreateView(generics.ListCreateAPIView):
         serializer.save(creatorId=self.request.user)
 
 
-class FarmDetailView(generics.ListAPIView):
+
+class FarmDetailView(APIView):
     """
-    Retrieve farms based on query parameters:
-    - If `company_id` is provided, return all farms belonging to the company.
-    - If `company_id` and `farm_id` are provided, return the specific farm.
+    API view to retrieve details of a specific farm.
     """
-    serializer_class = FarmSerializer
-    permission_classes = [permissions.IsAuthenticated, IsStaffPermission]
 
-    def get_queryset(self):
-        # Get query parameters
-        company_id = self.request.query_params.get("company")
-        farm_id = self.request.query_params.get("farm")
+    def get(self, request):
+        company_id = request.query_params.get('company')
+        farm_id = request.query_params.get('farm')
 
-        # Handle missing `company_id`
-        if not company_id:
-            raise PermissionDenied("A company_id query parameter is required to retrieve farms.")
+        if not company_id or not farm_id:
+            raise PermissionDenied("Both 'company' and 'farm' query parameters are required.")
 
-        # Validate `company_id`
         try:
-            company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
-            raise PermissionDenied("Invalid company_id provided.")
+            farm = Farm.objects.get(id=farm_id, company_id=company_id)
+        except Farm.DoesNotExist:
+            raise NotFound("Farm not found.")
 
-        # Check user permissions for the company
-        if not has_permission(
-            user=self.request.user,
-            company=company,
-            model_name="Farm",
-            action="GET"
-        ):
-            raise PermissionDenied("You do not have permission to view farms for this company.")
+        # Check if the requesting user has permission to access the farm
+        if not has_permission(user=request.user, company=farm.company, model_name="Farm", action="GET"):
+            raise PermissionDenied("You do not have permission to view this farm.")
 
-        # Filter farms by `farm_id` if provided
-        if farm_id:
-            return Farm.objects.filter(company=company, id=farm_id)
-
-        # Return all farms for the company
-        return Farm.objects.filter(company=company)
+        # Pass companyID as part of the serializer context
+        serializer = FarmSerializer(farm, context={'companyID': company_id})
+        return Response(serializer.data)  # Ensure Response is returned with serialized data
 
 
 

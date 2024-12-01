@@ -5,7 +5,7 @@ from .views import FarmListCreateView, FarmDetailView, FarmPutViews, StaffMember
 
 urlpatterns = [
     path('farms/create/', FarmListCreateView.as_view(), name='farm-list-create'),
-    path('farms/', FarmDetailView.as_view(), name='farm-detail-view'),
+    path('branch/', FarmDetailView.as_view(), name='farm-detail-view'),
     path('farms/edit/<int:pk>/', FarmPutViews.as_view(), name='farm-edit-and-delete'),
 
     # Staff Member URLs
