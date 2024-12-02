@@ -59,12 +59,40 @@ class StaffSerializer(serializers.ModelSerializer):
 class AuthoritySerializer(serializers.ModelSerializer):
     class Meta:
         model = Authority
-        #fields = '__all__'
         fields = [
-            'id', 'model_name', 'company', 'requested_by', 'approver',
+            'id', 'model_name', 'app_name', 'company', 'requested_by', 'approver',
             'view', 'add', 'edit', 'delete', 'accept', 'approve', 'created'
         ]
         read_only_fields = ['id', 'created', 'requested_by']
+
+    def validate(self, data):
+        """
+        Validate the app_name and model_name combination.
+        """
+        app_name = data.get('app_name')
+        model_name = data.get('model_name')
+
+        # Check if app_name exists
+        try:
+            app_config = apps.get_app_config(app_name)
+        except LookupError:
+            raise serializers.ValidationError(f"The app '{app_name}' does not exist.")
+
+        # Check if model_name exists in the specified app
+        if not hasattr(app_config, 'get_model') or not app_config.get_model(model_name, require_ready=False):
+            raise serializers.ValidationError(
+                f"The model '{model_name}' does not exist in the app '{app_name}'."
+            )
+
+        # Ensure unique combination of model_name, app_name, and company
+        company = data.get('company')
+        if not self.instance and Authority.objects.filter(company=company, app_name=app_name, model_name=model_name).exists():
+            raise serializers.ValidationError(
+                f"The model '{app_name}.{model_name}' is already defined for this company."
+            )
+
+        return data
+
 
 class CompanySerializer(serializers.ModelSerializer):
     class Meta:

@@ -1,5 +1,33 @@
 
 
+
+
+
+Enhance Authority Model, Serializer and Views :
+  1. Notify logged in user of all model that has specified company data in but not included in authority model.
+      a. Check if has_permission 
+      b. Prevent multiple additions of the same model_name for a specific company
+          i.    A specific model_name cannot be added multiple times for the same company.
+          ii.   Existing authority data can be modified.
+          iii.  The model_name field cannot be changed once created.
+      c. Include the app_name when validating permissions.
+      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
+      e. has_permission(user, company, app_name, model_name, action, min_level=1): requires app_name please update views class accordingly.
+      f. EditAuthorityView(generics.RetrieveUpdateAPIView): do not allow change of model_name in edit
+
+
+
+Update FarmDetail : 
+        1. Add a modal that on click opens StaffMemberList : <Route path="/staff-members/:appName/:companyId/:farmId/:userId?" element={<StaffMemberList />}/>
+            include 
+
+    Important Instruction:
+        1.The changes should be made in the same class, preserving the original implementation structure.
+
+
+    Exisiting data:
+    
+
 create a def validate function for the StaffMember model serializer:
             1. Check if user provided in data.get, is a valid user in users.model import User 
             2. Check if user is a staff (Staff(models.Model)) of company (companyId)
@@ -33,3 +61,25 @@ Create StaffMember List component
 
 Exisiting data:
         
+
+
+
+
+
+Enhance Authority Model, Serializer and Views :
+  1. Notify logged in user of all model that has specified company data in but not included in authority model.
+      a. Check if has_permission 
+      b. Prevent multiple additions of the same model_name for a specific company
+          i.    A specific model_name cannot be added multiple times for the same company.
+          ii.   Existing authority data can be modified.
+          iii.  The model_name field cannot be changed once created.
+      c. Include the app_name when validating permissions.
+      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
+
+  Important Instruction:
+    1.  The changes should be made in the same class, preserving the original implementation structure.
+    2.  Provide the complete implementation
+    
+
+  Exisiting data:
+  

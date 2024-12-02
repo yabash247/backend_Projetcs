@@ -3,7 +3,7 @@ from .models import Company, Staff, Authority, Branch
 
 @admin.register(Authority)
 class AuthorityAdmin(admin.ModelAdmin):
-    list_display = ('model_name', 'company', 'requested_by', 'approver', 'created')
+    list_display = ('app_name', 'model_name', 'company', 'requested_by', 'approver', 'created')
     list_filter = ('company', 'created')  # Filter by company and created date
     search_fields = ('model_name', 'company__name', 'requested_by__username', 'approver__username')  # Searchable fields
 

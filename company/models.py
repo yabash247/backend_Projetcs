@@ -16,12 +16,18 @@ class Authority(models.Model):
         ('5', 'Five'),
     ]
 
-    model_name = models.CharField(max_length=100)  # Name of the target model
-    company = models.ForeignKey('Company', on_delete=models.CASCADE, null=True, blank=True, related_name='authorities')  # Link to company
-    requested_by = models.ForeignKey('users.User', on_delete=models.CASCADE, related_name='authority_requests')  # User requesting access
-    approver = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='authority_approvals')  # Approver
+    model_name = models.CharField(max_length=100, help_text="Name of the target model.")
+    app_name = models.CharField(max_length=100, help_text="Name of the app the model belongs to.")  
+    company = models.ForeignKey(
+        'Company', on_delete=models.CASCADE, null=True, blank=True, related_name='authorities'
+    )
+    requested_by = models.ForeignKey(
+        'users.User', on_delete=models.CASCADE, related_name='authority_requests'
+    )
+    approver = models.ForeignKey(
+        'users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='authority_approvals'
+    )
 
-    # Permissions with levels
     view = models.CharField(max_length=1, choices=LEVELS, default='5')
     add = models.CharField(max_length=1, choices=LEVELS, default='5')
     edit = models.CharField(max_length=1, choices=LEVELS, default='5')
@@ -29,15 +35,15 @@ class Authority(models.Model):
     accept = models.CharField(max_length=1, choices=LEVELS, default='5')
     approve = models.CharField(max_length=1, choices=LEVELS, default='5')
 
-    created = models.DateTimeField(default=now)  # Auto timestamp for creation
-
-    def __str__(self):
-        return f"Authority for {self.model_name} in {self.company}"
+    created = models.DateTimeField(default=now)
 
     class Meta:
         verbose_name = "Authority"
         verbose_name_plural = "Authorities"
-        unique_together = ('model_name', 'company')  # Prevent duplicate permissions for the same model and company
+        unique_together = ('model_name', 'app_name', 'company')  # Ensure uniqueness for model and app per company
+
+    def __str__(self):
+        return f"Authority for {self.app_name}.{self.model_name} in {self.company}"
 
     def clean(self):
         """
@@ -45,33 +51,23 @@ class Authority(models.Model):
         """
         if not self.model_name:
             raise ValidationError("Model name cannot be empty.")
+        if not self.app_name:
+            raise ValidationError("App name cannot be empty.")
         if not any([self.view, self.add, self.edit, self.delete, self.accept, self.approve]):
             raise ValidationError("At least one permission level must be defined.")
 
     def save(self, *args, **kwargs):
-        self.full_clean()  # Run validations
+        self.full_clean()
         super().save(*args, **kwargs)
 
     def has_permission(self, user, action):
         """
         Check if a user has sufficient permission for a given action.
-        :param user: User instance
-        :param action: Permission type (view, add, edit, delete, accept, approve)
-        :return: Boolean
         """
-        # Get user's staff level for this company
-        staff_level = StaffLevels.objects.filter(
-            user=user,
-            company=self.company
-        ).first()
-
+        staff_level = StaffLevels.objects.filter(user=user, company=self.company).first()
         if not staff_level:
-            return False  # No staff level assigned to the user for this company
-
-        # Get required permission level for the action
-        required_level = int(getattr(self, action, '5'))  # Default to the highest level if undefined
-
-        # Compare staff level with the required level
+            return False
+        required_level = int(getattr(self, action, '5'))
         return int(staff_level.level) >= required_level
 
 

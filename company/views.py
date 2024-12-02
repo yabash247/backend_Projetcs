@@ -1,6 +1,8 @@
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, serializers  
+from .permissions import IsBranchPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 from .models import Company, Authority, Staff, StaffLevels, Branch
@@ -9,19 +11,21 @@ from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySer
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from company.utils import check_user_exists
+from django.apps import apps
 import logging
 
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def has_permission(user, company, model_name, action, min_level=1):
+def has_permission(user, company, app_name, model_name, action, min_level=1):
     """
     Check if a user has the required authority level for a specific action on a model.
-    
+
     Parameters:
     - user: The user making the request.
     - company: The company instance the request pertains to.
+    - app_name: The target app name (string).
     - model_name: The target model name (string).
     - action: The permission action ('view', 'add', 'edit', 'delete', 'accept', 'approve').
     - min_level: The minimum authority level required (default is 1).
@@ -39,13 +43,12 @@ def has_permission(user, company, model_name, action, min_level=1):
     if not staff_record:
         raise PermissionDenied("You are not a staff member of this company.")
 
-    # Check if the model_name exists in the Authority model
-    authority = Authority.objects.filter(company=company, model_name=model_name).first()
+    # Check if the app_name and model_name exist in the Authority model
+    authority = Authority.objects.filter(company=company, app_name=app_name, model_name=model_name).first()
     if not authority:
-        # If model_name is not defined in Authority, allow request for superusers or company creator
+        # If not defined in Authority, allow request for superusers or company creator
         if user.is_superuser or company.creator == user:
             return True
-        
 
     # Get the required authority level for the specified action
     try:
@@ -62,65 +65,125 @@ def has_permission(user, company, model_name, action, min_level=1):
 
 
 # *******  Views for Authority Model ***********
-
 class AuthorityView(APIView):
-    
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request, company_id):
-        # Retrieve the company instance
+        """
+        Retrieve all authority settings for the specified company
+        and notify about models not included in the authority model.
+        """
         company = get_object_or_404(Company, id=company_id)
 
         # Access control
         user = request.user
         if not (
-            user.is_superuser or 
-            user == company.creator or 
-            (Staff.objects.filter(user=user, company=company).exists() and
-             Staff.objects.get(user=user, company=company).has_permission())
+            user.is_superuser or
+            user == company.creator or
+            has_permission(user, company, app_name="company", model_name="Authority", action="view")
         ):
             raise PermissionDenied("You do not have access to this resource.")
 
-        # Filter Authority objects by the provided company ID
+        # Get all registered models for all apps, excluding specific apps
+        excluded_apps = ['admin', 'auth', 'contenttypes', 'sessions', 'token_blacklist', 'account', 'socialaccount', 'otp_totp']
+        all_models = []
+        for app_config in apps.get_app_configs():
+            app_name = app_config.label
+            if app_name not in excluded_apps:  # Skip excluded apps
+                for model in app_config.get_models():
+                    all_models.append({"app_name": app_name, "model_name": model.__name__})
+
+        # Get models already in the Authority model for this company
+        authority_models = Authority.objects.filter(company=company).values_list('app_name', 'model_name')
+        missing_models = [
+            model for model in all_models
+            if (model["app_name"], model["model_name"]) not in authority_models
+        ]
+
         authorities = Authority.objects.filter(company=company)
         serializer = AuthoritySerializer(authorities, many=True)
-        return Response(serializer.data)
 
+        return Response({
+            "authorities": serializer.data,
+            "missing_models": missing_models
+        })
+
+    def post(self, request, company_id):
+        """
+        Add a new authority entry for the specified company.
+        """
+        company = get_object_or_404(Company, id=company_id)
+
+        # Access control
+        user = request.user
+        data = request.data
+        app_name = data.get('app_name')
+        model_name = data.get('model_name')
+        if not has_permission(user, company, app_name=app_name, model_name=model_name, action="add"):
+            raise PermissionDenied("You do not have permission to add authority settings.")
+
+        data['company'] = company.id
+        serializer = AuthoritySerializer(data=data)
+        if serializer.is_valid():
+            serializer.save(requested_by=user)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
 
 class AddAuthorityView(generics.CreateAPIView):
     serializer_class = AuthoritySerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        # Ensure the user has the permission to add an authority
         company = serializer.validated_data['company']
+        app_name = serializer.validated_data['app_name']
         model_name = serializer.validated_data['model_name']
-        action = 'add'  # The action for this endpoint is 'add'
+        action = 'add'  # Action for this endpoint
 
-        if not has_permission(self.request.user, company, model_name, action):
+        # Check permissions
+        if not has_permission(self.request.user, company, app_name=app_name, model_name=model_name, action=action):
             raise PermissionDenied("You do not have permission to add an authority.")
 
-        # Automatically set the requested_by field to the authenticated user
         serializer.save(requested_by=self.request.user)
 
-class EditAuthorityView(generics.RetrieveUpdateAPIView):
+
+class EditAuthorityView(RetrieveUpdateAPIView):
+    """
+    View to retrieve and update an authority record.
+    Ensures that app_name and model_name cannot be changed during updates.
+    """
     serializer_class = AuthoritySerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        """
+        Defines the queryset for retrieving authority records.
+        """
         return Authority.objects.all()
 
     def perform_update(self, serializer):
-        authority = self.get_object()
+        """
+        Custom logic for updating an authority record.
+        Ensures that app_name and model_name cannot be changed.
+        """
+        authority = self.get_object()  # Retrieve the current authority record
         company = authority.company
+        app_name = authority.app_name
         model_name = authority.model_name
-        action = 'edit'  # The action for this endpoint is 'edit'
+        action = 'edit'  # Action being performed
 
-        # Check if the user has permission to edit the authority
-        if not has_permission(self.request.user, company, model_name, action):
+        # Check if the requesting user has the appropriate permissions
+        if not has_permission(self.request.user, company, app_name=app_name, model_name=model_name, action=action):
             raise PermissionDenied("You do not have permission to edit this authority.")
 
-        # Automatically set the requested_by field to the authenticated user
+        # Prevent changing model_name during update
+        if 'model_name' in serializer.validated_data and serializer.validated_data['model_name'] != model_name:
+            raise serializers.ValidationError({"model_name": "Changing the model_name is not allowed."})
+
+        # Prevent changing app_name during update
+        if 'app_name' in serializer.validated_data and serializer.validated_data['app_name'] != app_name:
+            raise serializers.ValidationError({"app_name": "Changing the app_name is not allowed."})
+
+        # Save the updated record with the requested_by field set to the current user
         serializer.save(requested_by=self.request.user)
 
 class DeleteAuthorityView(generics.DestroyAPIView):
@@ -132,11 +195,12 @@ class DeleteAuthorityView(generics.DestroyAPIView):
 
     def perform_destroy(self, instance):
         company = instance.company
+        app_name = instance.app_name
         model_name = instance.model_name
-        action = 'delete'  # The action for this endpoint is 'delete'
+        action = 'delete'  # Action for this endpoint
 
-        # Check if the user has permission to delete the authority
-        if not has_permission(self.request.user, company, model_name, action):
+        # Check permissions
+        if not has_permission(self.request.user, company, app_name=app_name, model_name=model_name, action=action):
             raise PermissionDenied("You do not have permission to delete this authority.")
 
         instance.delete()
@@ -445,13 +509,6 @@ class StaffLevelView(APIView):
         serializer = StaffLevelsSerializer(staff_level)
         return Response(serializer.data)
     
-
-
-
-
-
-
-from .permissions import IsBranchPermission
 
 class BranchListCreateView(generics.ListCreateAPIView):
     """
