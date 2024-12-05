@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Company, Staff, Authority, Branch
+from .models import Company, Staff, Authority, Branch, Media
 
 @admin.register(Authority)
 class AuthorityAdmin(admin.ModelAdmin):
@@ -27,3 +27,22 @@ class BranchAdmin(admin.ModelAdmin):
     list_display = ("name", "company", "branch_id", "status", "appName", "modelName", "created_at")
     search_fields = ("name", "company__name", "branch_id", "status", "appName", "modelName")
     list_filter = ("company", "status", "created_at", "appName", "modelName")
+
+
+
+@admin.register(Media)
+class MediaAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "company",
+        "branch",
+        "app_name",
+        "model_name",
+        "model_id",
+        "status",
+        "created_date",
+        "uploaded_by",
+    )
+    list_filter = ("company", "branch", "app_name", "model_name", "status")
+    search_fields = ("title", "app_name", "model_name")
+    ordering = ("-created_date",)

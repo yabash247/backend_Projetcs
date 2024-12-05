@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import Company, Authority, Staff, StaffLevels, Branch
 from django.apps import apps
+from .models import Media
+from django.db.models import Q
 
 class BranchSerializer(serializers.ModelSerializer):
     associated_data = serializers.SerializerMethodField()
@@ -105,3 +107,38 @@ class AdminCompanySerializer(serializers.ModelSerializer):
         model = Company
         fields = ['id', 'name', 'description', 'creator', 'approver', 'phone', 'email', 'website', 'comments', 'status']
         read_only_fields = ['id', 'creator']
+
+
+class MediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Media
+        fields = "__all__"
+        read_only_fields = ["id", "created_date", "negative_flags_count"]
+
+    def validate(self, data):
+        """
+        Validate Media input.
+        """
+        app_name = data.get("app_name")
+        branch = data.get("branch")
+        company = data.get("company")
+
+        # Ensure branch is not provided if app_name == "company"
+        if app_name == "company" and branch is not None:
+            raise serializers.ValidationError({"branch": "Branch cannot be specified for the 'company' app."})
+
+        # Validate model existence (optional logic based on your use case)
+        # Example: Check if the provided model_id exists in the specified model
+
+        return data
+
+    def create(self, validated_data):
+        """
+        Override to suggest titles and categories based on user input and past data.
+        """
+        media_instance = super().create(validated_data)
+
+        # Generate suggestions for title or category (Optional: implement based on your logic)
+        # Example: Query past inputs from this model for suggestions
+
+        return media_instance

@@ -2,18 +2,24 @@
 
 
 
-Create NET Model, Serializer and Views :
-  1. This is for the bsf(black soilder fly farm) app.
-  2. Net also know as love cage is a white breathable artifical habitat mde off polyester net. 
-  3. Net would contain the Fly, attractant bowl, laying baten, puppa bowl, drinking source water bowl(cotton in it)
-  4. Net needs to be sprayed with water depending location humility and how hot the wether is. The hotter the more spraying frequency needed. 
-  5. Net has to be assigned to a farm and comany
+    
+Request /  NetUseStats from fetchNetUseStats(netUseStatsSlice.ts):
+    1. On Laying radio buttion clicked
+    2. populate payload result in selectedOption === "Laying"
+
+    Here's the updated BatchDetailsModal.tsx file that integrates fetching NetUseStats when the "Laying" radio button is selected. 
+    It uses the fetchNetUseStats thunk to populate the payload result into the selectedOption view.
 
 
-  Important Instruction:
-    1.  The changes should be made in the same class, preserving the original implementation structure.
-    2.  Provide the complete implementation
+   
+Important Instruction:
+    1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+    2.  Provide the complete updated files for my project.  
+        Each file should include existing code, along with modifications or additions due to the new requirements. 
+        Allowing for esay Copy and paste of these files into my project to replace the existing ones.
+
     
 
-  Existing data:
-    
+Existing data:
+
+ 

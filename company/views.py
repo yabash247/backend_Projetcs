@@ -5,9 +5,9 @@ from rest_framework.response import Response
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
-from .models import Company, Authority, Staff, StaffLevels, Branch
+from .models import Company, Authority, Staff, StaffLevels, Branch, Media
 from .serializers import BranchSerializer
-from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer
+from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer, MediaSerializer
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from company.utils import check_user_exists
@@ -18,7 +18,7 @@ import logging
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def has_permission(user, company, app_name, model_name, action, min_level=1):
+def has_permission(user, company, app_name, model_name, action, min_level=1, requested_documents=None):
     """
     Check if a user has the required authority level for a specific action on a model.
 
@@ -29,9 +29,11 @@ def has_permission(user, company, app_name, model_name, action, min_level=1):
     - model_name: The target model name (string).
     - action: The permission action ('view', 'add', 'edit', 'delete', 'accept', 'approve').
     - min_level: The minimum authority level required (default is 1).
+    - requested_documents: A queryset or list of data records being accessed (optional).
 
     Returns:
-    - True if the user is authorized; raises PermissionDenied otherwise.
+    - True if the user is authorized, or a filtered queryset if only partial data is allowed (for 'view' action only).
+    - Raises PermissionDenied if no access is granted.
     """
 
     # Allow superusers or the company creator to execute the request
@@ -42,6 +44,21 @@ def has_permission(user, company, app_name, model_name, action, min_level=1):
     staff_record = Staff.objects.filter(user=user, company=company).first()
     if not staff_record:
         raise PermissionDenied("You are not a staff member of this company.")
+
+    # Special case: Allow partial access for GET/view actions only
+    if action == "view" and requested_documents is not None:
+        excluded_models = ["company.Company", "company.Staff", "bsf.StaffMembers"]
+        if f"{app_name}.{model_name}" not in excluded_models:  # Model not excluded
+            # Filter documents to include only those associated with the logged-in user
+            filtered_documents = [
+                document
+                for document in requested_documents
+                if hasattr(document, 'user') and document.user == user
+            ]
+
+            # If filtered documents exist and the user matches, allow partial access
+            if filtered_documents:
+                return filtered_documents
 
     # Check if the app_name and model_name exist in the Authority model
     authority = Authority.objects.filter(company=company, app_name=app_name, model_name=model_name).first()
@@ -62,7 +79,6 @@ def has_permission(user, company, app_name, model_name, action, min_level=1):
         raise PermissionDenied(f"Insufficient authority level to perform the '{action}' action.")
 
     return True
-
 
 # *******  Views for Authority Model ***********
 class AuthorityView(APIView):
@@ -526,6 +542,7 @@ class BranchListCreateView(generics.ListCreateAPIView):
         return super().get_queryset()
 
 
+
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific branch.
@@ -534,3 +551,134 @@ class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = BranchSerializer
     permission_classes = [IsAuthenticated, IsBranchPermission]
 
+    def get_queryset(self):
+        """
+        Override to include app_name in the queryset filtering process.
+        """
+        app_name = self.request.query_params.get("app_name")
+        company_id = self.request.query_params.get("company")
+        if not app_name or not company_id:
+            raise PermissionDenied("Both 'app_name' and 'company' are required.")
+
+        user = self.request.user
+        company = get_object_or_404(Company, id=company_id)
+
+        # Ensure the user has permission
+        if not has_permission(user, company, app_name=app_name, model_name="Branch", action="view"):
+            raise PermissionDenied("You do not have permission to view this branch.")
+
+        return Branch.objects.filter(company=company, appName=app_name)
+
+    def perform_update(self, serializer):
+        """
+        Override to validate permissions and include `app_name` during the update.
+        """
+        app_name = self.request.data.get("app_name")
+        company = serializer.validated_data.get("company")
+        user = self.request.user
+
+        if not app_name:
+            raise PermissionDenied("The 'app_name' field is required.")
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name=app_name, model_name="Branch", action="edit"):
+            raise PermissionDenied("You do not have permission to edit this branch.")
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """
+        Override to validate permissions and include `app_name` during deletion.
+        """
+        app_name = self.request.query_params.get("app_name")
+        user = self.request.user
+        company = instance.company
+
+        if not app_name:
+            raise PermissionDenied("The 'app_name' field is required.")
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name=app_name, model_name="Branch", action="delete"):
+            raise PermissionDenied("You do not have permission to delete this branch.")
+
+        instance.delete()
+
+
+
+class MediaListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all media files or upload a new media file.
+    """
+    serializer_class = MediaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filters media by company, branch, app_name, and model_name.
+        """
+        company_id = self.request.query_params.get("company")
+        branch_id = self.request.query_params.get("branch")
+        app_name = self.request.query_params.get("app_name")
+        model_name = self.request.query_params.get("model_name")
+        queryset = Media.objects.all()
+
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if branch_id:
+            queryset = queryset.filter(branch_id=branch_id)
+        if app_name:
+            queryset = queryset.filter(app_name=app_name)
+        if model_name:
+            queryset = queryset.filter(model_name=model_name)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """
+        Validates and creates a new media entry.
+        """
+        company = serializer.validated_data["company"]
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="company", model_name="Media", action="add"):
+            raise PermissionDenied("You do not have permission to add media files for this company.")
+
+        serializer.save(uploaded_by=user)
+
+
+class MediaDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View to retrieve, update, or delete a media file.
+    """
+    serializer_class = MediaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Media.objects.all()
+
+    def perform_update(self, serializer):
+        """
+        Validates and updates a media file.
+        """
+        company = serializer.validated_data["company"]
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="company", model_name="Media", action="edit"):
+            raise PermissionDenied("You do not have permission to edit this media file.")
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """
+        Validates and deletes a media file.
+        """
+        company = instance.company
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="company", model_name="Media", action="delete"):
+            raise PermissionDenied("You do not have permission to delete this media file.")
+
+        instance.delete()

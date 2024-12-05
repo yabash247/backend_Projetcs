@@ -1,4 +1,6 @@
 from django.db import models
+import os
+from users.models import User 
 from django.utils.timezone import now
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -252,5 +254,70 @@ def ensure_unique_active_status(sender, instance, **kwargs):
             user=instance.user,
             status='active'
         ).exclude(pk=instance.pk).update(status='inactive')
+
+
+def media_upload_path(instance, filename):
+    """
+    Define the dynamic upload path for media files.
+    Format: media/company/<branch>/<app_name>/<model_name>/<model_id>/<id>/<filename>
+    """
+    path = f"media/company/"
+    if instance.app_name != "company":
+        path += f"{instance.branch.id}/"
+    path += f"{instance.app_name}/{instance.model_name}/{instance.model_id}/{instance.id or 'new'}/{filename}"
+    return path
+
+
+class Media(models.Model):
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("inactive", "Inactive"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="media")
+    branch = models.ForeignKey(
+        Branch, null=True, blank=True, on_delete=models.SET_NULL, related_name="media"
+    )
+    app_name = models.CharField(max_length=100)
+    model_name = models.CharField(max_length=100)
+    model_id = models.PositiveIntegerField()
+    title = models.CharField(max_length=255)
+    category = models.CharField(max_length=100, blank=True, null=True)
+    file = models.FileField(upload_to=media_upload_path)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="inactive")
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="uploaded_media"
+    )
+    created_date = models.DateTimeField(default=now)
+    negative_flags_count = models.PositiveIntegerField(default=0)
+    comments = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Media {self.title} - {self.app_name}/{self.model_name}"
+
+    def save(self, *args, **kwargs):
+        """
+        Custom save method to create directories if they don't exist.
+        """
+        # Call the parent save method to populate the ID if new
+        super().save(*args, **kwargs)
+
+        # Create directories if they don't exist
+        upload_dir = os.path.dirname(self.file.path)
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+
+    def clean(self):
+        """
+        Custom validation logic.
+        """
+        # Ensure that branch is not provided if app_name == "company"
+        if self.app_name == "company" and self.branch:
+            raise ValidationError("Branch cannot be specified for the 'company' app.")
+
+    class Meta:
+        verbose_name = "Media"
+        verbose_name_plural = "Media"
+        ordering = ["-created_date"]
 
 

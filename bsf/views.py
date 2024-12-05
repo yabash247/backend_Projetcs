@@ -1,14 +1,19 @@
 # views.py
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.generics import RetrieveUpdateDestroyAPIView
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from .models import Farm, StaffMember
-from company.models import Company  # Import the Company model
-from .serializers import FarmSerializer, StaffMemberSerializer
-from rest_framework.permissions import BasePermission
+from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats
+from company.models import Company, Media  # Import the Company model
+from company.serializers import MediaSerializer
+from .serializers import FarmSerializer, StaffMemberSerializer, NetSerializer, BatchSerializer, DurationSettingsSerializer, NetUseStatsSerializer
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from company.utils import has_permission, check_user_exists
+#from company.views import has_permission
 from django.shortcuts import get_object_or_404
+
+
 
 import logging
 
@@ -64,7 +69,6 @@ class IsAuthenticatedAndHasPermissionOrSelf(BasePermission):
         return request.user and request.user.is_authenticated
 
 
-
 class FarmListCreateView(generics.ListCreateAPIView):
     """
     List all farms or create a new farm.
@@ -87,9 +91,10 @@ class FarmDetailView(APIView):
     def get(self, request):
         company_id = request.query_params.get('company')
         farm_id = request.query_params.get('farm')
+        app_name = request.query_params.get('app_name')  # Ensure `app_name` is provided in the request
 
-        if not company_id or not farm_id:
-            raise PermissionDenied("Both 'company' and 'farm' query parameters are required.")
+        if not company_id or not farm_id or not app_name:
+            raise PermissionDenied("The 'company', 'farm', and 'app_name' query parameters are required.")
 
         try:
             farm = Farm.objects.get(id=farm_id, company_id=company_id)
@@ -97,12 +102,12 @@ class FarmDetailView(APIView):
             raise NotFound("Farm not found.")
 
         # Check if the requesting user has permission to access the farm
-        if not has_permission(user=request.user, company=farm.company, model_name="Farm", action="GET"):
+        if not has_permission(user=request.user, company=farm.company, app_name=app_name, model_name="Farm", action="view"):
             raise PermissionDenied("You do not have permission to view this farm.")
 
-        # Pass companyID as part of the serializer context
+        # Pass companyID and other relevant data as part of the serializer context
         serializer = FarmSerializer(farm, context={'companyID': company_id})
-        return Response(serializer.data)  # Ensure Response is returned with serialized data
+        return Response(serializer.data)
 
 
 
@@ -115,9 +120,7 @@ class FarmPutViews(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsStaffPermission]
 
 
-
-
-
+#StaffMember views
 class StaffMemberListCreateView(generics.ListCreateAPIView):
     """
     List all staff members or assign a new staff member.
@@ -127,9 +130,9 @@ class StaffMemberListCreateView(generics.ListCreateAPIView):
     serializer_class = StaffMemberSerializer
     permission_classes = [IsAuthenticatedAndHasPermissionOrSelf]
 
-    def validate_permissions(self, company_id, model_name, action):
+    def validate_permissions(self, company_id, model_name, action, app_name="bsf"):
         """
-        Validate permissions for the current user on the given company and action.
+        Validate permissions for the current user on the given company, app_name, and action.
         """
         try:
             company = Company.objects.get(id=company_id)
@@ -137,7 +140,13 @@ class StaffMemberListCreateView(generics.ListCreateAPIView):
             raise NotFound("The specified company does not exist.")
 
         # Run the has_permission function
-        if not has_permission(user=self.request.user, company=company, model_name=model_name, action=action):
+        if not has_permission(
+            user=self.request.user,
+            company=company,
+            app_name=app_name,
+            model_name=model_name,
+            action=action
+        ):
             raise PermissionDenied(f"You do not have permission to {action} this resource.")
         return company
 
@@ -182,8 +191,6 @@ class StaffMemberListCreateView(generics.ListCreateAPIView):
 
         # Save the instance
         serializer.save(created_by=self.request.user)
-
-
 
 class AddStaffMemberView(generics.CreateAPIView):
     queryset = StaffMember.objects.all()
@@ -236,9 +243,6 @@ class AddStaffMemberView(generics.CreateAPIView):
         self.check_object_permissions(self.request, obj)
         return obj
     
-
-
-
 class StaffMemberDetailView(APIView):
     """
     API view to retrieve, update, or delete staff members.
@@ -246,9 +250,9 @@ class StaffMemberDetailView(APIView):
     """
     permission_classes = [IsAuthenticatedAndHasPermissionOrSelf]
 
-    def validate_permissions(self, company_id, model_name, action):
+    def validate_permissions(self, company_id, model_name, action, app_name="bsf"):
         """
-        Validate permissions for the current user on the given company and action.
+        Validate permissions for the current user on the given company, app_name, and action.
         """
         try:
             company = Company.objects.get(id=company_id)
@@ -256,7 +260,13 @@ class StaffMemberDetailView(APIView):
             raise NotFound("The specified company does not exist.")
 
         # Run the has_permission function
-        if not has_permission(user=self.request.user, company=company, model_name=model_name, action=action):
+        if not has_permission(
+            user=self.request.user,
+            company=company,
+            app_name=app_name,
+            model_name=model_name,
+            action=action
+        ):
             raise PermissionDenied(f"You do not have permission to {action} this resource.")
         return company
 
@@ -270,7 +280,7 @@ class StaffMemberDetailView(APIView):
 
         # Validate required parameters
         if not company_id or not farm_id:
-            raise PermissionDenied("Both 'company' and 'farm' query parameters are required.")
+            raise PermissionDenied("The 'company' and 'farm' query parameters are required.")
 
         # Validate permissions
         company = self.validate_permissions(company_id, model_name="StaffMember", action="view")
@@ -315,7 +325,6 @@ class StaffMemberDetailView(APIView):
         serializer.save()
         return Response(serializer.data)
 
-
     def delete(self, request):
         """
         Delete a specific user (status='active') for a given company and farm.
@@ -348,3 +357,462 @@ class StaffMemberDetailView(APIView):
         # Delete the staff member
         staff_member.delete()
         return Response({"detail": "Active staff member deleted successfully."}, status=204)
+
+# Net views
+class NetListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all Nets or create a new Net for a company and farm.
+    """
+    serializer_class = NetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filters Nets by company, farm, and optionally by id.
+        """
+        company_id = self.request.query_params.get('company')
+        farm_id = self.request.query_params.get('farm')
+        net_id = self.request.query_params.get('id')  # Optional Net ID
+        queryset = Net.objects.all()
+
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+        if net_id:
+            queryset = queryset.filter(id=net_id)
+
+        # Check partial access for view action
+        result = has_permission(
+            user=self.request.user,
+            company=queryset.first().company if queryset.exists() else None,
+            app_name="bsf",
+            model_name="Net",
+            action="view",
+            requested_documents=queryset
+        )
+
+        # Handle permissions and filtering
+        if result is True:
+            return queryset
+        if isinstance(result, list):
+            ids = [doc.id for doc in result]
+            return queryset.filter(id__in=ids)
+        return queryset.none()
+
+    def perform_create(self, serializer):
+        """
+        Validates and creates a new Net.
+        """
+        company = serializer.validated_data['company']
+        farm = serializer.validated_data['farm']
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="bsf", model_name="Net", action="add"):
+            raise PermissionDenied("You do not have permission to add a Net for this company.")
+
+        serializer.save()
+
+
+class NetDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View to retrieve, update, or delete a specific Net.
+    """
+    serializer_class = NetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filters Nets by company, farm, and optionally by id.
+        """
+        company_id = self.request.query_params.get('company')
+        farm_id = self.request.query_params.get('farm')
+        net_id = self.request.query_params.get('id')  # Optional Net ID
+        queryset = Net.objects.all()
+
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+        if net_id:
+            queryset = queryset.filter(id=net_id)
+
+        return queryset
+
+    def perform_update(self, serializer):
+        """
+        Validates and updates a Net.
+        """
+        company = serializer.validated_data.get('company', serializer.instance.company)
+        farm = serializer.validated_data.get('farm', serializer.instance.farm)
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="bsf", model_name="Net", action="edit"):
+            raise PermissionDenied("You do not have permission to edit this Net.")
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """
+        Validates and deletes a Net and returns a success message.
+        """
+        company = instance.company
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="bsf", model_name="Net", action="delete"):
+            raise PermissionDenied("You do not have permission to delete this Net.")
+
+        instance.delete()
+
+    def delete(self, request, *args, **kwargs):
+        """
+        Overrides the DELETE method to include a success note.
+        """
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {"detail": f"Net '{instance.name}' was successfully deleted."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class BatchListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all batches or create a new batch.
+    """
+    serializer_class = BatchSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        company_id = self.request.query_params.get("company")
+        farm_id = self.request.query_params.get("farm")
+        queryset = Batch.objects.all()
+
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        company = serializer.validated_data["company"]
+        farm = serializer.validated_data["farm"]
+        user = self.request.user
+
+        if not has_permission(user, company, app_name="bsf", model_name="Batch", action="add"):
+            raise PermissionDenied("You do not have permission to create a batch for this company.")
+
+        serializer.save()
+
+
+
+class BatchDetailView(RetrieveUpdateDestroyAPIView):
+    """
+    View to retrieve, update, or delete a batch with associated data.
+    """
+    serializer_class = BatchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Batch.objects.all()
+
+    def get_object(self):
+        """
+        Override to include permission validation.
+        """
+        obj = super().get_object()
+
+        # Check if the user has permission to view the batch
+        has_permission(
+            user=self.request.user,
+            company=obj.company,
+            app_name="bsf",
+            model_name="Batch",
+            action="view"
+        )
+
+        return obj
+
+
+class DurationSettingsListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all duration settings or create a new one.
+    Incorporates `has_permission` validation.
+    """
+    
+    queryset = DurationSettings.objects.all()
+    serializer_class = DurationSettingsSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    
+
+    def get_queryset(self):
+        """
+        Optionally filters by company and farm.
+        """
+        company_id = self.request.query_params.get("company")
+        farm_id = self.request.query_params.get("farm")
+
+        if not company_id:
+            raise NotFound("The 'company' query parameter is required.")
+
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Check permissions
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="DurationSettings",
+            action="view"
+        )
+
+        queryset = DurationSettings.objects.filter(company=company)
+        if farm_id:
+            queryset = queryset.filter(farm=farm_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        company_id = serializer.validated_data.get("company").id
+        farm_id = serializer.validated_data.get("farm").id
+        user = self.request.user
+
+        
+
+        # Validate if the farm exists and belongs to the company
+        try:
+            farm = Farm.objects.get(id=farm_id, company=company_id)
+        except Farm.DoesNotExist:
+            raise ValidationError({"farm": f"Farm with ID {farm_id} does not exist for Company {company_id}."})
+
+        # Check if the user has permission
+        if not has_permission(
+            user=user,
+            company=farm.company,
+            app_name="bsf",
+            model_name="DurationSettings",
+            action="add",
+        ):
+            raise PermissionDenied("You do not have permission to add Duration Settings.")
+
+        # Save the validated data
+        serializer.save()
+
+
+class DurationSettingsDetailView(APIView):
+    """
+    View to retrieve or update DurationSettings for a specific farm and company.
+    Returns default DurationSettings (id=1) if no settings exist for the farm.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        company_id = request.query_params.get("company")
+        farm_id = request.query_params.get("farm")
+
+        if not company_id:
+            raise NotFound("The 'company' query parameter is required.")
+
+        # Validate the company exists
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Attempt to retrieve the specified farm's settings
+        if farm_id:
+            settings = DurationSettings.objects.filter(company=company, farm_id=farm_id).first()
+        else:
+            settings = DurationSettings.objects.filter(company=company, farm=None).first()
+
+        # Fallback to default settings with ID=1 if no settings exist
+        if not settings:
+            settings = DurationSettings.objects.filter(id=1).first()
+
+        # Serialize the result
+        if not settings:
+            raise NotFound("No default DurationSettings (id=1) found in the system.")
+
+        serializer = DurationSettingsSerializer(settings)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request):
+        company_id = request.data.get("company")
+        farm_id = request.data.get("farm")
+
+        if not company_id:
+            raise NotFound("The 'company' parameter is required.")
+
+        # Validate the company exists
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Validate permissions for editing
+        has_permission(
+            user=request.user,
+            company=company,
+            app_name="bsf",
+            model_name="DurationSettings",
+            action="edit",
+        )
+
+        # Retrieve the DurationSettings to update
+        settings = DurationSettings.objects.filter(company=company, farm_id=farm_id).first()
+        if not settings:
+            settings = DurationSettings.objects.filter(id=1).first()
+
+        if not settings:
+            raise NotFound("No default DurationSettings (id=1) found in the system.")
+
+        # Perform update
+        serializer = DurationSettingsSerializer(settings, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+
+
+class NetUseStatsListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all NetUseStats or create a new entry.
+    """
+    serializer_class = NetUseStatsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        company_id = self.request.query_params.get("company")
+        farm_id = self.request.query_params.get("farm")
+
+        if not company_id:
+            raise PermissionDenied("'company' query parameter is required.")
+
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Check permissions for viewing
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="view",
+        )
+
+        queryset = NetUseStats.objects.filter(company=company)
+
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        company_id = self.request.data.get("company")
+        farm_id = self.request.data.get("farm")
+
+        if not company_id:
+            raise PermissionDenied("'company' parameter is required.")
+
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Validate permissions for adding
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="add",
+        )
+
+        serializer.save(created_by=self.request.user)
+
+class NetUseStatsDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View to retrieve, update, or delete a specific NetUseStats entry.
+    Returns associated media data if <int:pk> (batchId) is provided.
+    """
+    queryset = NetUseStats.objects.all()
+    serializer_class = NetUseStatsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        # Retrieve the NetUseStats object
+        obj = super().get_object()
+
+        # Validate permissions for viewing
+        has_permission(
+            user=self.request.user,
+            company=obj.company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="view",
+        )
+        return obj
+
+    def retrieve(self, request, *args, **kwargs):
+        # Get the primary key from the URL
+        batch_id = self.kwargs.get("pk")
+
+        # Retrieve the NetUseStats object
+        instance = self.get_object()
+
+        # Retrieve associated media for the batch
+        associated_media = Media.objects.filter(
+            app_name="bsf",
+            model_name="NetUseStats",
+            model_id=batch_id,
+            company=instance.company,
+        )
+
+        # Serialize the main NetUseStats object
+        serializer = self.get_serializer(instance)
+
+        # Serialize the associated media
+        media_serializer = MediaSerializer(associated_media, many=True)
+
+        # Return both the NetUseStats and associated media in the response
+        return Response({
+            "net_use_stats": serializer.data,
+            "associated_media": media_serializer.data
+        })
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+
+        # Validate permissions for editing
+        has_permission(
+            user=self.request.user,
+            company=obj.company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="edit",
+        )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Validate permissions for deleting
+        has_permission(
+            user=self.request.user,
+            company=instance.company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="delete",
+        )
+        instance.delete()

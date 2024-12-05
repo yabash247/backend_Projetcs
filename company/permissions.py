@@ -16,6 +16,11 @@ class IsBranchPermission(BasePermission):
         # Determine action based on HTTP method
         action = request.method  # GET, POST, PUT, DELETE, etc.
 
+        # Get the `app_name` from request data or query params
+        app_name = request.data.get("app_name") or request.query_params.get("app_name")
+        if not app_name:
+            raise PermissionDenied("App name must be provided.")
+
         if action in ["GET", "POST"]:  # For listing or creating branches
             company_id = request.data.get("company") or request.query_params.get("company")
             if not company_id:
@@ -26,10 +31,11 @@ class IsBranchPermission(BasePermission):
             except Company.DoesNotExist:
                 raise PermissionDenied("Invalid Company ID.")
 
-            # Pass the `Company` object instead of `company_id`
+            # Pass the `Company` object and `app_name` to `has_permission`
             return has_permission(
                 user=request.user,
                 company=company,
+                app_name=app_name,
                 model_name="Branch",
                 action=action
             )
@@ -39,9 +45,16 @@ class IsBranchPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         # Ensure the user has permission to view or modify the specific branch
         action = request.method  # GET, PUT, DELETE, etc.
+
+        # Get the `app_name` from request data or query params
+        app_name = request.data.get("app_name") or request.query_params.get("app_name")
+        if not app_name:
+            raise PermissionDenied("App name must be provided.")
+
         return has_permission(
             user=request.user,
             company=obj.company,  # Pass the Company object
+            app_name=app_name,
             model_name="Branch",
             action=action
         )

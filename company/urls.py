@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import AddCompanyView, EditCompanyView, DeleteCompanyView, ViewCompanyView, AuthorityView, AddAuthorityView, EditAuthorityView, DeleteAuthorityView, ViewStaffView, AddStaffView, EditStaffView, DeleteStaffView
-from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView, BranchListCreateView, BranchDetailView
+from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView, BranchListCreateView, BranchDetailView, MediaListCreateView, MediaDetailView
 
 router = DefaultRouter()
 #router.register(r'authorities', AuthorityViewSet)
@@ -34,5 +34,8 @@ urlpatterns = [
 
     path('branches/', BranchListCreateView.as_view(), name='branch-list-create'),
     path('branches/<int:pk>/', BranchDetailView.as_view(), name='branch-detail'),
+
+    path("media/", MediaListCreateView.as_view(), name="media-list-create"),
+    path("media/<int:pk>/", MediaDetailView.as_view(), name="media-detail"),
 
 ]
