@@ -56,3 +56,36 @@ class BatchAdmin(admin.ModelAdmin):
 class DurationSettingsAdmin(admin.ModelAdmin):
     list_display = ["id", "company", "farm", "laying_duration", "nursery_duration", "incubation_duration"]
     search_fields = ["company__name", "farm__name"]
+
+
+
+from .models import NetUseStats
+
+@admin.register(NetUseStats)
+class NetUseStatsAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "company",
+        "farm",
+        "net",
+        "batch",
+        "lay_start",
+        "lay_end",
+        "harvest_weight",
+        "stats",
+        "created_by",
+        "approved_by",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("stats", "created_at", "updated_at", "company", "farm")
+    search_fields = (
+        "net__name",
+        "batch__batch_name",
+        "company__name",
+        "farm__name",
+        "created_by__username",
+        "approved_by__username",
+    )
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("-created_at",)

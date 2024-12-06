@@ -1,7 +1,7 @@
 # urls.py
 from django.urls import path
 from .views import FarmListCreateView, FarmDetailView, FarmPutViews, StaffMemberListCreateView, StaffMemberDetailView
-from .views import NetListCreateView, NetDetailView, BatchListCreateView, BatchDetailView
+from .views import NetListCreateView, NetDetailView, NetDetailView_status, BatchListCreateView, BatchDetailView
 
 
 urlpatterns = [
@@ -18,6 +18,7 @@ urlpatterns = [
     # Net URLs
     path('nets/', NetListCreateView.as_view(), name='net-list-create'),
     path('nets/<int:pk>/', NetDetailView.as_view(), name='net-detail'),
+    path('/<int:pk>/', NetDetailView_status.as_view(), name='net-detail-satsCheck'),
 
     # Batch URLs
     path('batches/', BatchListCreateView.as_view(), name='batch-list-create'),
@@ -38,3 +39,4 @@ urlpatterns += [
     path("net-use-stats/", NetUseStatsListCreateView.as_view(), name="net-use-stats-list-create"),
     path("net-use-stats/<int:pk>/", NetUseStatsDetailView.as_view(), name="net-use-stats-detail"),
 ]
+

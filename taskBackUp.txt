@@ -1,6 +1,8 @@
 
 
 
+Here's the updated BatchDetailsModal.tsx file that integrates fetching NetUseStats when the "Laying" radio button is selected. 
+    It uses the fetchNetUseStats thunk to populate the payload result into the selectedOption view.
 
 
 Enhance Authority Model, Serializer and Views :

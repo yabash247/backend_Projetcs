@@ -478,6 +478,90 @@ class NetDetailView(generics.RetrieveUpdateDestroyAPIView):
             status=status.HTTP_200_OK,
         )
 
+class NetDetailView_status(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View to retrieve, update, or delete a specific Net.
+    Ensures only Nets with a "completed" status in NetUseStats are returned.
+    """
+    serializer_class = NetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filters Nets by company, farm, and optionally by id.
+        Only returns Nets with "completed" status in NetUseStats.
+        """
+        company_id = self.request.query_params.get('company')
+        farm_id = self.request.query_params.get('farm')
+        net_id = self.request.query_params.get('id')  # Optional Net ID
+        queryset = Net.objects.all()
+
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+        if net_id:
+            queryset = queryset.filter(id=net_id)
+
+        # Filter by "completed" status in NetUseStats
+        completed_net_ids = NetUseStats.objects.filter(
+            stats="completed"
+        ).values_list('net_id', flat=True)
+        queryset = queryset.filter(id__in=completed_net_ids)
+
+        return queryset
+
+    def perform_update(self, serializer):
+        """
+        Validates and updates a Net.
+        """
+        company = serializer.validated_data.get('company', serializer.instance.company)
+        farm = serializer.validated_data.get('farm', serializer.instance.farm)
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="bsf", model_name="Net", action="edit"):
+            raise PermissionDenied("You do not have permission to edit this Net.")
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """
+        Validates and deletes a Net and returns a success message.
+        """
+        company = instance.company
+        user = self.request.user
+
+        # Validate user permissions
+        if not has_permission(user, company, app_name="bsf", model_name="Net", action="delete"):
+            raise PermissionDenied("You do not have permission to delete this Net.")
+
+        instance.delete()
+
+    def delete(self, request, *args, **kwargs):
+        """
+        Overrides the DELETE method to include a success note.
+        """
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {"detail": f"Net '{instance.name}' was successfully deleted."},
+            status=status.HTTP_200_OK,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve Net details, ensuring it has a "completed" status in NetUseStats.
+        """
+        instance = self.get_object()
+        net_use_stats = NetUseStats.objects.filter(net=instance, stats="completed")
+
+        if not net_use_stats.exists():
+            raise NotFound("The requested Net does not have a 'completed' status in NetUseStats.")
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
 
 class BatchListCreateView(generics.ListCreateAPIView):
     """
@@ -743,76 +827,72 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
 
         serializer.save(created_by=self.request.user)
 
-class NetUseStatsDetailView(generics.RetrieveUpdateDestroyAPIView):
+
+class NetUseStatsDetailView(generics.RetrieveAPIView):
     """
-    View to retrieve, update, or delete a specific NetUseStats entry.
-    Returns associated media data if <int:pk> (batchId) is provided.
+    View to retrieve all NetUseStats data for a specific batchId, farm, and company.
+    Returns associated media and all matching NetUseStats entries.
     """
-    queryset = NetUseStats.objects.all()
     serializer_class = NetUseStatsSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_object(self):
-        # Retrieve the NetUseStats object
-        obj = super().get_object()
+    def get_queryset(self):
+        """
+        Filter NetUseStats by company, farm, and batchId.
+        """
+        batch_id = self.kwargs.get("pk")  # batchId from URL
+        company_id = self.request.query_params.get("company")
+        farm_id = self.request.query_params.get("farm")
 
-        # Validate permissions for viewing
+        if not company_id or not farm_id:
+            raise NotFound("Both 'company' and 'farm' query parameters are required.")
+
+        # Validate company
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        # Validate farm
+        try:
+            farm = Farm.objects.get(id=farm_id, company=company)
+        except Farm.DoesNotExist:
+            raise NotFound("The specified farm does not belong to the given company.")
+
+        # Validate permissions
         has_permission(
             user=self.request.user,
-            company=obj.company,
+            company=company,
             app_name="bsf",
             model_name="NetUseStats",
             action="view",
         )
-        return obj
+
+        # Filter queryset
+        return NetUseStats.objects.filter(company=company, farm=farm, batch_id=batch_id)
 
     def retrieve(self, request, *args, **kwargs):
-        # Get the primary key from the URL
-        batch_id = self.kwargs.get("pk")
+        """
+        Retrieve NetUseStats data and associated media for the given batchId.
+        """
+        queryset = self.get_queryset()
 
-        # Retrieve the NetUseStats object
-        instance = self.get_object()
+        if not queryset.exists():
+            raise NotFound("No NetUseStats found for the specified batch, farm, and company.")
 
-        # Retrieve associated media for the batch
+        # Serialize the NetUseStats data
+        net_use_stats_serializer = self.get_serializer(queryset, many=True)
+
+        # Fetch associated media
         associated_media = Media.objects.filter(
             app_name="bsf",
             model_name="NetUseStats",
-            model_id=batch_id,
-            company=instance.company,
+            model_id__in=queryset.values_list("id", flat=True),
+            company=queryset.first().company,
         )
-
-        # Serialize the main NetUseStats object
-        serializer = self.get_serializer(instance)
-
-        # Serialize the associated media
         media_serializer = MediaSerializer(associated_media, many=True)
 
-        # Return both the NetUseStats and associated media in the response
         return Response({
-            "net_use_stats": serializer.data,
-            "associated_media": media_serializer.data
+            "net_use_stats": net_use_stats_serializer.data,
+            "associated_media": media_serializer.data,
         })
-
-    def perform_update(self, serializer):
-        obj = self.get_object()
-
-        # Validate permissions for editing
-        has_permission(
-            user=self.request.user,
-            company=obj.company,
-            app_name="bsf",
-            model_name="NetUseStats",
-            action="edit",
-        )
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        # Validate permissions for deleting
-        has_permission(
-            user=self.request.user,
-            company=instance.company,
-            app_name="bsf",
-            model_name="NetUseStats",
-            action="delete",
-        )
-        instance.delete()
