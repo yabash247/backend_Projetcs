@@ -1,0 +1,87 @@
+
+
+Requirements: Create Class too: Return only available ponds. 
+   1. Get all status active Ponds. (Class PondView(APIView > def get(self, request, *args, **kwargs)) )  already returns this, can we reuse the is function.
+   2. ForEach Pond returned in 1. above, check to ensure Pond has no ongoing status in PondUseStatsView(APIView) >  def get(self, request, *args, **kwargs) return 
+
+
+Important Instruction:
+    1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+    2.  Provide the complete updated files for my project:  
+        a. Each file should include existing code, along with modifications or additions due to the new requirements. 
+        b. Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+
+
+Existing data:
+
+    class PondView(APIView):
+        permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+
+        def get(self, request, *args, **kwargs):
+            """
+            View all ponds or retrieve a pond by ID (optional).
+            """
+            company_id = request.query_params.get("company")
+            farm_id = request.query_params.get("farm")
+            pond_id = kwargs.get("id")
+
+            if not company_id or not farm_id:
+                return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Fetch and validate the company and farm
+            company = get_object_or_404(Company, id=company_id)
+            farm = get_object_or_404(Farm, id=farm_id, company=company)
+
+            # Check permissions
+            has_permission(request.user, company, "bsf", "Pond", "view")
+
+            if pond_id:
+                # Retrieve specific pond by ID
+                pond = get_object_or_404(Pond, id=pond_id, farm=farm)
+                media = get_associated_media(pond.id, "Ponds", "bsf", company)
+                pond_data = {
+                    "pond": PondSerializer(pond).data,
+                    "associated_media": MediaSerializer(media, many=True).data
+                }
+                return Response(pond_data, status=status.HTTP_200_OK)
+
+            # Retrieve all ponds
+            ponds = Pond.objects.filter(farm=farm)
+            return Response(PondSerializer(ponds, many=True).data, status=status.HTTP_200_OK)
+
+    class PondUseStatsView(APIView):
+        permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+
+        def get(self, request, *args, **kwargs):
+            """
+            View all PondUseStats or retrieve a PondUseStats by ID (optional).
+            """
+            company_id = request.query_params.get("company")
+            farm_id = request.query_params.get("farm")
+            pondusestats_id = kwargs.get("id")
+
+            if not company_id or not farm_id:
+                return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Fetch and validate the company and farm
+            company = get_object_or_404(Company, id=company_id)
+            farm = get_object_or_404(Farm, id=farm_id, company=company)
+
+            # Check permissions
+            has_permission(request.user, company, "bsf", "PondUseStats", "view")
+
+            if pondusestats_id:
+                # Retrieve specific PondUseStats by ID
+                pondusestats = get_object_or_404(PondUseStats, id=pondusestats_id, farm=farm)
+                media = get_associated_media(pondusestats.id, "PondUseStats", "bsf", company)
+                data = {
+                    "pondusestats": PondUseStatsSerializer(pondusestats).data,
+                    "associated_media": MediaSerializer(media, many=True).data,
+                }
+                return Response(data, status=status.HTTP_200_OK)
+
+            # Retrieve all PondUseStats for the specified farm
+            pondusestats = PondUseStats.objects.filter(farm=farm)
+            return Response(PondUseStatsSerializer(pondusestats, many=True).data, status=status.HTTP_200_OK)
+
+  

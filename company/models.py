@@ -81,7 +81,7 @@ class Company(models.Model):
 
     name = models.CharField(max_length=100, unique=True)  # Unique company name
     description = models.TextField(blank=True, null=True)  # Optional description
-    creator = models.ForeignKey('users.User', on_delete=models.CASCADE, related_name='created_companies')  # Creator
+    creator = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True, blank=True, related_name='created_companies')  # Creator
     approver = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_companies')  # Approver
     phone = models.CharField(
         max_length=20, 
@@ -261,10 +261,10 @@ def media_upload_path(instance, filename):
     Define the dynamic upload path for media files.
     Format: media/company/<branch>/<app_name>/<model_name>/<model_id>/<id>/<filename>
     """
-    path = f"media/company/"
-    if instance.app_name != "company":
-        path += f"{instance.branch.id}/"
-    path += f"{instance.app_name}/{instance.model_name}/{instance.model_id}/{instance.id or 'new'}/{filename}"
+    #path = f"media/company/"
+    #if instance.app_name != "company":
+        #path = f"{instance.branch.id}/"
+    path = f"{instance.app_name}/{instance.model_name}/{instance.model_id}/{filename}"
     return path
 
 

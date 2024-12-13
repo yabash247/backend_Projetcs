@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import StaffMember, Farm, Net, Batch, DurationSettings
+from .models import StaffMember, Farm, Net, Batch, DurationSettings, Pond, NetUseStats, PondUseStats
 
 @admin.register(Farm)
 class FarmAdmin(admin.ModelAdmin):
@@ -58,9 +58,6 @@ class DurationSettingsAdmin(admin.ModelAdmin):
     search_fields = ["company__name", "farm__name"]
 
 
-
-from .models import NetUseStats
-
 @admin.register(NetUseStats)
 class NetUseStatsAdmin(admin.ModelAdmin):
     list_display = (
@@ -89,3 +86,20 @@ class NetUseStatsAdmin(admin.ModelAdmin):
     )
     readonly_fields = ("created_at", "updated_at")
     ordering = ("-created_at",)
+
+
+@admin.register(Pond)
+class PondAdmin(admin.ModelAdmin):
+    list_display = ('id', 'pond_name', 'pond_type', 'pond_use', 'farm', 'company', 'status', 'created_date')
+    list_filter = ('pond_type', 'pond_use', 'status', 'farm', 'company')
+    search_fields = ('pond_name',)
+    readonly_fields = ('created_date',)
+    ordering = ('-created_date',)
+
+
+@admin.register(PondUseStats)
+class PondUseStatsAdmin(admin.ModelAdmin):
+    list_display = ('id', 'pond_name', 'batch', 'harvest_stage', 'start_weight', 'harvest_weight', 'harvest_date', 'start_date', 'status', 'created_by', 'approver_id', 'created_date')
+    list_filter = ('harvest_stage', 'status', 'farm', 'company')
+    search_fields = ('pond_name',)
+    readonly_fields = ('pond_name', 'created_date')

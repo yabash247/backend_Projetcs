@@ -1,0 +1,629 @@
+            
+            
+            
+            Requirements: Create fetchBsfPondsUseStats thunk in bsfPondsSlice :
+
+                1. fetchBsfPondsUseStats thunk
+                    backend url : {backendURL}/api/bsf/ponduse-stats/?company&farm&batch&harvest_stage
+                    acessToken needed as well
+                        gotten in the slice from rootstate.
+                    include option to get indivdual thunk if <id> is provided.
+                        endpoint url : {backendURL}/api/<id>/bsf/ponds/?company&farm&batch
+                    
+                    sucessful retured data sample : 
+                        [
+                            {
+                                "pondusestats": {
+                                    "id": 1,
+                                    "start_date": "2024-12-10",
+                                    "start_weight": "0.00",
+                                    "harvest_date": null,
+                                    "harvest_weight": "0.00",
+                                    "harvest_stage": "First Insta",
+                                    "pond_name": "A1",
+                                    "created_date": "2024-12-12T04:51:25.002414Z",
+                                    "status": "Ongoing",
+                                    "comments": "",
+                                    "created_by": 18,
+                                    "approver_id": 18,
+                                    "batch": 2,
+                                    "pond": 1,
+                                    "farm": 8,
+                                    "company": 5
+                                },
+                                "associated_media": [
+                                    {
+                                        "id": 34,
+                                        "app_name": "bsf",
+                                        "model_name": "PondUseStats",
+                                        "model_id": 1,
+                                        "title": "side - start",
+                                        "category": null,
+                                        "file": "/media/bsf/pondusestats/1/dale.png",
+                                        "status": "active",
+                                        "created_date": "2024-12-13T03:24:34Z",
+                                        "negative_flags_count": 0,
+                                        "comments": "",
+                                        "company": 5,
+                                        "branch": 1,
+                                        "uploaded_by": 18
+                                    },
+                                    {
+                                        "id": 33,
+                                        "app_name": "bsf",
+                                        "model_name": "PondUseStats",
+                                        "model_id": 1,
+                                        "title": "start",
+                                        "category": null,
+                                        "file": "/media/bsf/pondusestats/1/0520c29b-de22-440b-968e-269a003a8c02.MP4",
+                                        "status": "active",
+                                        "created_date": "2024-12-13T03:23:35Z",
+                                        "negative_flags_count": 0,
+                                        "comments": "",
+                                        "company": 5,
+                                        "branch": 1,
+                                        "uploaded_by": 17
+                                    }
+                                ]
+                            },
+                            {
+                                "pondusestats": {
+                                    "id": 2,
+                                    "start_date": "2024-12-13",
+                                    "start_weight": "1.00",
+                                    "harvest_date": null,
+                                    "harvest_weight": null,
+                                    "harvest_stage": "First Insta",
+                                    "pond_name": "A2",
+                                    "created_date": "2024-12-13T03:29:22.880155Z",
+                                    "status": "Ongoing",
+                                    "comments": "",
+                                    "created_by": 18,
+                                    "approver_id": 18,
+                                    "batch": 4,
+                                    "pond": 2,
+                                    "farm": 8,
+                                    "company": 5
+                                },
+                                "associated_media": [
+                                    {
+                                        "id": 36,
+                                        "app_name": "bsf",
+                                        "model_name": "PondUseStats",
+                                        "model_id": 2,
+                                        "title": "start second",
+                                        "category": null,
+                                        "file": "/media/bsf/PondUseStats/2/image.png",
+                                        "status": "active",
+                                        "created_date": "2024-12-13T03:31:34Z",
+                                        "negative_flags_count": 0,
+                                        "comments": "",
+                                        "company": 5,
+                                        "branch": 1,
+                                        "uploaded_by": 18
+                                    },
+                                    {
+                                        "id": 35,
+                                        "app_name": "bsf",
+                                        "model_name": "PondUseStats",
+                                        "model_id": 2,
+                                        "title": "Start",
+                                        "category": null,
+                                        "file": "/media/bsf/PondUseStats/2/voice_test.mp3",
+                                        "status": "active",
+                                        "created_date": "2024-12-13T03:30:54Z",
+                                        "negative_flags_count": 0,
+                                        "comments": "",
+                                        "company": 5,
+                                        "branch": 1,
+                                        "uploaded_by": 17
+                                    }
+                                ]
+                            }
+                        ]
+           
+                2. create a component that dynamically request and displays fetchBsfPondsUseStats returned value
+                    Add component dynamically to BatchDetailsModal.tsx for example on select :
+                         a. <FormControlLabel value="Incubation" control={<Radio />} label="Incubation" />; use harvest_stage = Incubation in making request to fetchBsfPondsUseStats thunk
+                    Note: component looks and behaviour should be similar to that of <FormControlLabel value="Laying" control={<Radio />} label="Laying" /> on select.
+       
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+
+            Existing data:
+
+                BatchDetailsModal.tsx
+
+                    import React, { useEffect, useState, useCallback, useMemo } from "react";
+                    import {
+                    Box,
+                    Drawer,
+                    Divider,
+                    Typography,
+                    Button,
+                    Grid,
+                    Radio,
+                    RadioGroup,
+                    FormControl,
+                    FormControlLabel,
+                    CircularProgress,
+                    Alert,
+                    Table,
+                    TableBody,
+                    TableCell,
+                    TableContainer,
+                    TableHead,
+                    TableRow,
+                    Tooltip,
+                    TableSortLabel,
+                    } from "@mui/material";
+                    import {
+                    Edit as EditIcon,
+                    Videocam as VideocamIcon,
+                    VideocamOff as VideocamOffIcon,
+                    PauseCircle as PauseCircleIcon,
+                    AddCircleOutline as AddCircleOutlineIcon,
+                    } from "@mui/icons-material";
+
+                    import { useDispatch, useSelector } from "react-redux";
+                    import { AppDispatch, RootState } from "../../store";
+                    import {
+                    fetchNetUseStats,
+                    selectNetUseStats,
+                    selectNetUseStatsLoading,
+                    selectNetUseStatsError,
+                    } from "../../features/bsf/netUseStatsSlice";
+                    import Carousel from "react-material-ui-carousel";
+                    import { backendURL } from "../../utils/Constant";
+                    import NetUseCreateForm from "./NetUseStatsForm";
+                    import EditNetUseStats from "./EditNetUseStats";
+
+                    interface BatchDetailsModalProps {
+                    open: boolean;
+                    batch: any | null;
+                    onClose: () => void;
+                    companyId: number;
+                    farmId: number;
+                    }
+
+                    interface MediaItem {
+                    id: number;
+                    file: string;
+                    title: string;
+                    fileType?: string;
+                    }
+
+                    const BatchDetailsModal: React.FC<BatchDetailsModalProps> = ({
+                    open,
+                    batch,
+                    onClose,
+                    companyId,
+                    farmId,
+                    }) => {
+                    const dispatch = useDispatch<AppDispatch>();
+
+                    const netUseStats = useSelector(selectNetUseStats);
+                    const loading = useSelector(selectNetUseStatsLoading);
+                    const error = useSelector(selectNetUseStatsError);
+
+                    const [selectedOption, setSelectedOption] = useState<string>("Laying");
+                    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+                    const [selectedNet, setSelectedNet] = useState<any | null>(null); // State for selected NetUseStats
+                    const [isCarouselPaused, setIsCarouselPaused] = useState<boolean>(false);
+                    const [showNetUseForm, setShowNetUseForm] = useState<boolean>(false); // State for Add button form
+                    const [editNetId, setEditNetId] = useState<number | null>(null); // State for Edit Net ID
+
+                    useEffect(() => {
+                        if (selectedOption === "Laying" && batch?.id) {
+                        dispatch(fetchNetUseStats({ companyId, farmId, batchId: batch.id }));
+                        }
+                    }, [selectedOption, batch, companyId, farmId, dispatch]);
+
+                    const handleRadioChange = useCallback(
+                        (event: React.ChangeEvent<HTMLInputElement>) => {
+                        setSelectedOption(event.target.value);
+                        },
+                        []
+                    );
+
+                    const handleSortClick = useCallback(() => {
+                        setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+                    }, []);
+
+                    const handleRowClick = (net: any) => {
+                        setSelectedNet({
+                        ...net,
+                        associated_media: (net.associated_media || []).map(detectMediaType), // Enrich media
+                        });
+                        setShowNetUseForm(false); // Reset form display when selecting a new net
+                        setEditNetId(null); // Reset edit state when selecting a new net
+                    };
+
+                    const handleAddNewLayInfoClick = () => {
+                        setShowNetUseForm(true);
+                        setSelectedNet(null); // Reset selected net when showing the form
+                        setEditNetId(null); // Reset edit state
+                    };
+
+                    const handleEditClick = (netId: number, status: string) => {
+                        if (status !== "completed") {
+                        setEditNetId(netId); // Set the Net ID for editing
+                        setShowNetUseForm(false); // Reset form display
+                        setSelectedNet(null); // Reset selected net
+                        }
+                    };
+
+                    const detectMediaType = (media: MediaItem): MediaItem => {
+                        if (media.fileType) return media;
+
+                        const fileExtension = media.file.split(".").pop()?.toLowerCase();
+                        const typeMap: Record<string, string> = {
+                        mp4: "video",
+                        avi: "video",
+                        mov: "video",
+                        mp3: "audio",
+                        wav: "audio",
+                        jpg: "image",
+                        jpeg: "image",
+                        png: "image",
+                        };
+
+                        return {
+                        ...media,
+                        fileType: typeMap[fileExtension || ""] || "unknown",
+                        };
+                    };
+
+                    const sortedNetUseStats = useMemo(() => {
+                        return [...(netUseStats || [])].sort((a: any, b: any) => {
+                        if (a.stats === b.stats) return 0;
+                        if (a.stats === "ongoing" && b.stats !== "ongoing")
+                            return sortOrder === "asc" ? -1 : 1;
+                        if (a.stats !== "ongoing" && b.stats === "ongoing")
+                            return sortOrder === "asc" ? 1 : -1;
+                        return 0;
+                        });
+                    }, [netUseStats, sortOrder]);
+
+                    return (
+                        <Drawer anchor="right" open={open} onClose={onClose}>
+                        <Box sx={{ width: 600, padding: 2 }} role="presentation">
+                            <Box display="flex" justifyContent="space-between" alignItems="center">
+                            <Typography variant="h5" gutterBottom>
+                                {batch?.batch_name || "Batch Details"}
+                            </Typography>
+                            <Button variant="text" color="primary" onClick={onClose}>
+                                Close
+                            </Button>
+                            </Box>
+                            <Divider />
+                            <Grid container spacing={2} sx={{ mt: 2 }}>
+                            {/* Radio Buttons */}
+                            <Grid item xs={3} id="BatchInfoContainer">
+                                <FormControl component="fieldset">
+                                <RadioGroup value={selectedOption} onChange={handleRadioChange}>
+                                    <FormControlLabel value="Laying" control={<Radio />} label="Laying" />
+                                    <FormControlLabel value="Incubation" control={<Radio />} label="Incubation" />
+                                    <FormControlLabel value="Nursery" control={<Radio />} label="Nursery" />
+                                    <FormControlLabel value="Grow Out" control={<Radio />} label="Grow Out" />
+                                </RadioGroup>
+                                {/* Add Button */}
+                                <Box sx={{ mt: 2, textAlign: "center" }}>
+                                    <Tooltip title="Add new laying data for this batch">
+                                    <Button
+                                        id="addNewLayInfoButton"
+                                        variant="contained"
+                                        color="primary"
+                                        startIcon={<AddCircleOutlineIcon />}
+                                        onClick={handleAddNewLayInfoClick}
+                                    >
+                                        Add
+                                    </Button>
+                                    </Tooltip>
+                                </Box>
+                                </FormControl>
+                            </Grid>
+
+                            {/* NetUseStatsTableContainer */}
+                            <Grid item xs={9} id="NetUseStatsTableContainer">
+                                {loading ? (
+                                <CircularProgress />
+                                ) : error ? (
+                                <Alert severity="error">{error}</Alert>
+                                ) : (
+                                <TableContainer
+                                    sx={{
+                                    maxHeight: 250,
+                                    overflowY: "auto",
+                                    }}
+                                >
+                                    <Table>
+                                    <TableHead>
+                                        <TableRow>
+                                        <TableCell>Net Name</TableCell>
+                                        <TableCell>Status</TableCell>
+                                        <TableCell>Associated</TableCell>
+                                        <TableCell>Edit</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {sortedNetUseStats.map((net: any) => (
+                                        <TableRow
+                                            key={net.id}
+                                            sx={{
+                                            backgroundColor:
+                                                selectedNet?.id === net.id ? "#f0f8ff" : "inherit",
+                                            cursor: "pointer",
+                                            }}
+                                        >
+                                            <TableCell onClick={() => handleRowClick(net)}>
+                                            {net.associated_net?.name || `Net ${net.id}`}
+                                            </TableCell>
+                                            <TableCell onClick={() => handleRowClick(net)}>
+                                            {net.stats}
+                                            </TableCell>
+                                            <TableCell onClick={() => handleRowClick(net)}>
+                                            {net.associated_media?.length > 0 ? (
+                                                <VideocamIcon sx={{ fontSize: 20, color: "green" }} />
+                                            ) : (
+                                                <VideocamOffIcon sx={{ fontSize: 20, color: "gray" }} />
+                                            )}
+                                            </TableCell>
+                                            <TableCell>
+                                            <Tooltip
+                                                title={
+                                                net.stats === "completed"
+                                                    ? "Edit disabled for completed status"
+                                                    : "Edit Net Use"
+                                                }
+                                            >
+                                                <EditIcon
+                                                sx={{
+                                                    fontSize: 20,
+                                                    color:
+                                                    net.stats === "completed" ? "gray" : "blue",
+                                                    cursor:
+                                                    net.stats === "completed" ? "default" : "pointer",
+                                                }}
+                                                onClick={() => handleEditClick(net.id, net.stats)}
+                                                />
+                                            </Tooltip>
+                                            </TableCell>
+                                        </TableRow>
+                                        ))}
+                                    </TableBody>
+                                    </Table>
+                                </TableContainer>
+                                )}
+                            </Grid>
+                            </Grid>
+                            <Divider sx={{ mt: 2, mb: 2 }} />
+
+                            {/* AssociatedMediaContainer */}
+                            <Box
+                            id="AssociatedMediaContainer"
+                            sx={{
+                                mt: 2,
+                                p: 2,
+                                border: "1px solid #ccc",
+                                borderRadius: 4,
+                                backgroundColor: "#f9f9f9",
+                            }}
+                            >
+                            {showNetUseForm ? (
+                                <NetUseCreateForm
+                                companyId={companyId}
+                                farmId={farmId}
+                                batchId={batch?.id}
+                                />
+                            ) : editNetId !== null ? (
+                                <EditNetUseStats
+                                id={editNetId}
+                                companyId={companyId}
+                                farmId={farmId}
+                                batchId={batch?.id}
+                                />
+                            ) : selectedNet ? (
+                                <>
+                                <Typography variant="h6">Net Details</Typography>
+                                <Box display="flex" justifyContent="space-between" mb={2}>
+                                    <Typography>
+                                    <strong>Lay Start:</strong> {new Date(selectedNet.lay_start).toDateString()}
+                                    </Typography>
+                                    <Typography>
+                                    <strong>Lay End:</strong> {new Date(selectedNet.lay_end).toDateString()}
+                                    </Typography>
+                                </Box>
+                                <Typography>
+                                    <strong>Harvest Weight:</strong> {selectedNet.harvest_weight} g
+                                </Typography>
+
+                                {/* Media Section */}
+                                {selectedNet.associated_media?.length > 0 ? (
+                                    <>
+                                    <Divider sx={{ my: 2 }} />
+                                    <Box>
+                                        <Typography variant="h6">Associated Media</Typography>
+                                        <Carousel autoPlay={!isCarouselPaused}>
+                                            {selectedNet.associated_media.map((media: MediaItem) => (
+                                            <MediaDisplay key={media.id} media={media} />
+                                            ))}
+                                        </Carousel>
+                                    </Box>
+                                    </>
+                                ) : (
+                                    <Typography sx={{ mt: 2 }}>No media associated with this net.</Typography>
+                                )}
+                                </>
+                            ) : (
+                                <Typography>No Net selected. Click a row to view details.</Typography>
+                            )}
+                            </Box>
+                        </Box>
+                        </Drawer>
+                    );
+                    };
+
+                    const MediaDisplay: React.FC<{ media: MediaItem }> = ({ media }) => {
+                    const mediaUrl = `${backendURL}${media.file}`;
+
+                    switch (media.fileType) {
+                        case "video":
+                        return (
+                            <video
+                            src={mediaUrl}
+                            controls
+                            style={{ maxHeight: "300px", width: "100%" }}
+                            />
+                        );
+                        case "audio":
+                        return (
+                            <audio
+                            src={mediaUrl}
+                            controls
+                            style={{ width: "100%" }}
+                            />
+                        );
+                        case "image":
+                        return (
+                            <img
+                            src={mediaUrl}
+                            alt={media.title}
+                            style={{ maxHeight: "300px", width: "100%" }}
+                            />
+                        );
+                        default:
+                        return <Typography>Unsupported media type</Typography>;
+                    }
+                    };
+
+                    export default BatchDetailsModal;
+
+
+                bsfPondsSlice.ts
+                
+                    import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+                    import { RootState } from '../../store';
+                    import axios from 'axios';
+                    import { backendURL } from '../../utils/Constant';
+
+                    interface Pond {
+                        id: number;
+                        pond_name: string;
+                        pond_type: string;
+                        pond_use: string;
+                        width: string;
+                        length: string;
+                        depth: string;
+                        shape: string;
+                        status: string;
+                        comments: string;
+                        created_date: string;
+                        farm: number;
+                        company: number;
+                        created_by: number;
+                    }
+
+                    interface Media {
+                        id: number;
+                        app_name: string;
+                        model_name: string;
+                        model_id: number;
+                        title: string;
+                        category: string | null;
+                        file: string;
+                        status: string;
+                        created_date: string;
+                        negative_flags_count: number;
+                        comments: string;
+                        company: number;
+                        branch: number;
+                        uploaded_by: number;
+                    }
+
+                    interface PondData {
+                        pond: Pond;
+                        associated_media: Media[];
+                    }
+
+                    interface BsfPondsState {
+                        data: PondData[];
+                        status: 'idle' | 'loading' | 'succeeded' | 'failed';
+                        error: string | null;
+                    }
+
+                    const initialState: BsfPondsState = {
+                        data: [],
+                        status: 'idle',
+                        error: null,
+                    };
+
+                    // Thunks
+                    export const fetchBsfPonds = createAsyncThunk<
+                        PondData[], // Thunk resolves with this type.
+                        { id?: number; farm: number; company: number }, // Arguments to the thunk.
+                        { state: RootState }
+                    >(
+                        'bsfPonds/fetchBsfPonds',
+                        async ({ id, farm, company }, { getState, rejectWithValue }) => {
+                            const accessToken = getState().auth.accessToken;
+                            if (!accessToken) {
+                                return rejectWithValue('Access token is missing');
+                            }
+
+                            try {
+                                const baseURL = id
+                                    ? `${backendURL}/api/${id}/bsf/ponds/`
+                                    : `${backendURL}/api/bsf/ponds/`;
+                                const params = { farm, company };
+
+                                const response = await axios.get(baseURL, {
+                                    headers: {
+                                        Authorization: `Bearer ${accessToken}`,
+                                    },
+                                    params,
+                                });
+                                return response.data as PondData[];
+                            } catch (error: any) {
+                                return rejectWithValue(error.message);
+                            }
+                        }
+                    );
+
+
+                    // Slice
+                    const bsfPondsSlice = createSlice({
+                        name: 'bsfPonds',
+                        initialState,
+                        reducers: {},
+                        extraReducers: (builder) => {
+                            builder
+                                .addCase(fetchBsfPonds.pending, (state) => {
+                                    state.status = 'loading';
+                                })
+                                .addCase(fetchBsfPonds.fulfilled, (state, action) => {
+                                    state.status = 'succeeded';
+                                    state.data = action.payload;
+                                })
+                                .addCase(fetchBsfPonds.rejected, (state, action) => {
+                                    state.status = 'failed';
+                                    state.error = action.payload as string;
+                                });
+                        },
+                    });
+
+                    export default bsfPondsSlice.reducer;
+
+                    // Selectors
+                    export const selectBsfPonds = (state: RootState) => state.bsfPonds.data;
+                    export const selectBsfPondsStatus = (state: RootState) => state.bsfPonds.status;
+                    export const selectBsfPondsError = (state: RootState) => state.bsfPonds.error;
+
+
+
+
+
+dynamically populate The AssociatedMediaContainer with the selected pond's details and associated media when any row in the table is clicked

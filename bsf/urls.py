@@ -18,7 +18,7 @@ urlpatterns = [
     # Net URLs
     path('nets/', NetListCreateView.as_view(), name='net-list-create'),
     path('nets/<int:pk>/', NetDetailView.as_view(), name='net-detail'),
-    path('/<int:pk>/', NetDetailView_status.as_view(), name='net-detail-satsCheck'),
+    path('nets_statsCheck/', NetDetailView_status.as_view(), name='net-detail-satsCheck'),
 
     # Batch URLs
     path('batches/', BatchListCreateView.as_view(), name='batch-list-create'),
@@ -33,10 +33,29 @@ urlpatterns += [
     path("duration-settings/", DurationSettingsDetailView.as_view(), name="duration-settings-detail"),
 ]
 
-from .views import NetUseStatsListCreateView, NetUseStatsDetailView
-
+# Net Use Status URLs
+from .views import NetUseStatsListCreateView, NetUseStatsDetailView, NetUseStatsRetrieveAllView
 urlpatterns += [
     path("net-use-stats/", NetUseStatsListCreateView.as_view(), name="net-use-stats-list-create"),
     path("net-use-stats/<int:pk>/", NetUseStatsDetailView.as_view(), name="net-use-stats-detail"),
+    path("net-use-stats/retrieve-all/", NetUseStatsRetrieveAllView.as_view(), name="net-use-stats-retrieve-all"),
 ]
 
+
+# Fetch all ponds, available ponds, or a specific pond by ID
+from .views import PondView
+urlpatterns += [
+    path('ponds/', PondView.as_view(), name='pond-list-create'),  # View all or create
+    path('ponds/', PondView.as_view(), name='pond-list'),
+    path('ponds/<int:id>/', PondView.as_view(), name='pond-detail-edit'),  # View by ID or edit
+    #path('ponds/<int:id>/', PondView.as_view(), name='pond-detail'),
+]
+
+
+
+from .views import PondUseStatsView
+urlpatterns += [
+    path('ponduse-stats/', PondUseStatsView.as_view(), name='ponduse-stats-list-create'),
+    path('ponduse-stats/<int:id>/', PondUseStatsView.as_view(), name='ponduse-stats-detail-edit'),
+    
+]

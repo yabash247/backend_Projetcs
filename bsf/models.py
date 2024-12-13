@@ -267,11 +267,13 @@ class NetUseStats(models.Model):
 
     lay_start = models.DateTimeField()
     lay_end = models.DateTimeField(null=True, blank=True)
-    harvest_weight = models.FloatField(null=True, blank=True, help_text="Harvest weight in grams")
+    harvest_weight = models.FloatField(
+        null=True, blank=True, help_text="Harvest weight in grams"
+    )
 
     stats = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ongoing")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_net_use_stats")
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="created_net_use_stats")
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_net_use_stats")
 
     created_at = models.DateTimeField(default=now)
@@ -280,3 +282,111 @@ class NetUseStats(models.Model):
     def __str__(self):
         return f"NetUseStats for {self.net.name} in Batch {self.batch.batch_name}"
 
+
+class Pond(models.Model):
+    # Choices for pond type
+    POND_TYPES = [
+        ('Concrete', 'Concrete'),
+        ('Rubber-Tire', 'Rubber-Tire'),
+    ]
+
+    # Choices for pond shape
+    POND_SHAPES = [
+        ('Circular', 'Circular'),
+        ('Rectangular', 'Rectangular'),
+        ('Square', 'Square'),
+    ]
+
+    # Choices for pond use
+    POND_USES = [
+        ('Incubator', 'Incubator'),
+        ('Nursery', 'Nursery'),
+        ('Grow Out', 'Grow Out'),
+        ('Multiple', 'Multiple'),
+    ]
+
+    # Choices for status
+    STATUS_CHOICES = [
+        ('Active', 'Active'),
+        ('Inactive', 'Inactive'),
+        ('Broken', 'Broken'),
+    ]
+
+    pond_name = models.CharField(max_length=255, unique=True, verbose_name="Pond Name")
+    pond_type = models.CharField(max_length=20, choices=POND_TYPES, verbose_name="Pond Type")
+    pond_use = models.CharField(max_length=20, choices=POND_USES, verbose_name="Pond Use")
+    width = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Width (meters)")
+    length = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Length (meters)")
+    depth = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Depth (meters)")
+    shape = models.CharField(max_length=20, choices=POND_SHAPES, verbose_name="Pond Shape")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active', verbose_name="Pond Status")
+    comments = models.TextField(blank=True, null=True, verbose_name="Comments")
+
+    # Foreign Key relationships
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='ponds', verbose_name="Farm")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='ponds', verbose_name="Company")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Created By")
+
+    # Timestamps
+    created_date = models.DateTimeField(auto_now_add=True, verbose_name="Created Date")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['pond_name', 'farm', 'company'],
+                name='unique_pond_name_per_farm_and_company'
+            )
+        ]
+        verbose_name = "Pond"
+        verbose_name_plural = "Ponds"
+
+    def __str__(self):
+        return f"{self.pond_name} ({self.company.name}, {self.farm.name})"
+
+
+class PondUseStats(models.Model):
+    # Choices for harvest stages
+    HARVEST_STAGE_CHOICES = [
+        ('Incubation', 'Incubation'),  # Eggies > Incubation
+        ('Nursery', 'Nursery'),  # Incubation > Nursery
+        ('Growout', 'Growout'),  # Nursery > Growout
+        ('PrePupa', 'PrePupa'),
+        ('Pupa', 'Pupa'),
+
+    ]
+
+    # Choices for status
+    STATUS_CHOICES = [
+        ('Ongoing', 'Ongoing'),
+        ('Completed', 'Completed'),
+    ]
+
+    # Fields
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_pond_use_stats', verbose_name="Created By")
+    approver_id = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_pond_use_stats', verbose_name="Approver")
+    start_date = models.DateField(verbose_name="Set Date")
+    start_weight = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Start Weight (g)")
+    harvest_date = models.DateField(null=True, blank=True, verbose_name="Harvest Date")
+    harvest_weight = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Harvest Weight (kg)")
+    harvest_stage = models.CharField(max_length=20, choices=HARVEST_STAGE_CHOICES, verbose_name="Harvest Stage")
+    batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Batch")
+    pond = models.ForeignKey(Pond, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Pond")
+    pond_name = models.CharField(max_length=255, editable=False, verbose_name="Pond Name")  # Automatically set, non-editable
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Farm")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Company")
+    created_date = models.DateTimeField(auto_now_add=True, verbose_name="Created Date")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Ongoing', verbose_name="Status")
+    comments = models.TextField(blank=True, null=True, verbose_name="Comments")
+
+    class Meta:
+        verbose_name = "Pond Use Stats"
+        verbose_name_plural = "Pond Use Stats"
+
+    def save(self, *args, **kwargs):
+        # Automatically set pond_name from the associated Pond instance
+        if not self.pond_name:
+            self.pond_name = self.pond.pond_name
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.pond_name} - {self.harvest_stage} ({self.start_date})"

@@ -33,6 +33,7 @@ class BranchAdmin(admin.ModelAdmin):
 @admin.register(Media)
 class MediaAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "title",
         "company",
         "branch",

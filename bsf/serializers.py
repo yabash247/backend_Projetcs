@@ -1,7 +1,7 @@
 
 
 from rest_framework import serializers
-from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats
+from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats, Pond, PondUseStats
 from company.models import Company, Staff, Media
 from users.models import User
 from company.utils import has_permission
@@ -304,6 +304,7 @@ class NetUseStatsSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        
         media_files = validated_data.pop("media", [])
         net_use_stats = super().create(validated_data)
 
@@ -344,3 +345,25 @@ class NetUseStatsSerializer(serializers.ModelSerializer):
             )
 
         return updated_instance
+
+
+
+class PondSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pond
+        fields = "__all__"
+
+
+class MediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Media
+        fields = "__all__"
+
+
+
+class PondUseStatsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PondUseStats
+        fields = "__all__"
+
+

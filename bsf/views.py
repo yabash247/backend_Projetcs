@@ -1,22 +1,105 @@
 # views.py
 from rest_framework import generics, permissions, status
 from rest_framework.generics import RetrieveUpdateDestroyAPIView
+from rest_framework.generics import ListAPIView
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats
+from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats, Pond, PondUseStats
 from company.models import Company, Media  # Import the Company model
 from company.serializers import MediaSerializer
-from .serializers import FarmSerializer, StaffMemberSerializer, NetSerializer, BatchSerializer, DurationSettingsSerializer, NetUseStatsSerializer
+from .serializers import FarmSerializer, StaffMemberSerializer, NetSerializer, BatchSerializer, DurationSettingsSerializer, NetUseStatsSerializer, PondSerializer, PondUseStatsSerializer
 from rest_framework.permissions import BasePermission, IsAuthenticated
-from company.utils import has_permission, check_user_exists
-#from company.views import has_permission
+from company.utils import has_permission, check_user_exists, get_associated_media, handle_media_uploads
 from django.shortcuts import get_object_or_404
-
-
-
+from django.db import transaction
+from copy import deepcopy
 import logging
 
+
+def validate_company_and_farm(request):
+    """
+    Validates that:
+    1. Company and Farm are provided in the request.
+    2. The Company exists.
+    3. The Farm exists.
+    4. The Farm belongs to the specified Company.
+
+    Args:
+        request: The incoming HTTP request containing 'company' and 'farm' parameters.
+
+    Returns:
+        dict: A dictionary containing the validated 'company' and 'farm' instances.
+
+    Raises:
+        Response: Returns an error response if any validation fails.
+    """
+    company_id = request.query_params.get("company") or request.data.get("company")
+    farm_id = request.query_params.get("farm") or request.data.get("farm")
+
+    if not company_id or not farm_id:
+        return Response(
+            {"detail": "'company' and 'farm' parameters are required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Fetch and validate the company
+    company = get_object_or_404(Company, id=company_id)
+
+    # Fetch and validate the farm
+    farm = get_object_or_404(Farm, id=farm_id)
+
+    # Ensure the farm belongs to the specified company
+    if farm.company_id != company.id:
+        return Response(
+            {"detail": f"Farm '{farm.name}' does not belong to Company '{company.name}'."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    return {"company": company, "farm": farm}
+
+def validate_company_farm_and_batch(request):
+    """
+    Validates that:
+    1. Company, Farm, and Batch are provided in the request.
+    2. The Company exists.
+    3. The Farm exists and belongs to the specified Company.
+    4. The Batch exists and belongs to the specified Farm.
+
+    Args:
+        request: The incoming HTTP request containing 'company', 'farm', and 'batch' parameters.
+
+    Returns:
+        dict: A dictionary containing the validated 'company', 'farm', and 'batch' instances.
+
+    Raises:
+        Response: Returns an error response if any validation fails.
+    """
+    company_id = request.query_params.get("company") or request.data.get("company")
+    farm_id = request.query_params.get("farm") or request.data.get("farm")
+    batch_id = request.query_params.get("batch") or request.data.get("batch")
+
+    if not company_id or not farm_id or not batch_id:
+        return Response(
+            {"detail": "'company', 'farm', and 'batch' parameters are required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Fetch and validate the company
+    company = get_object_or_404(Company, id=company_id)
+
+    # Fetch and validate the farm
+    farm = get_object_or_404(Farm, id=farm_id)
+    if farm.company_id != company.id:
+        return Response(
+            {"detail": f"Farm '{farm.name}' does not belong to Company '{company.name}'."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Fetch and validate the batch
+    batch = get_object_or_404(Batch, id=batch_id, farm=farm)
+
+    return {"company": company, "farm": farm, "batch": batch}
 
 class IsStaffPermission(permissions.BasePermission):
     """
@@ -478,89 +561,34 @@ class NetDetailView(generics.RetrieveUpdateDestroyAPIView):
             status=status.HTTP_200_OK,
         )
 
-class NetDetailView_status(generics.RetrieveUpdateDestroyAPIView):
+
+
+class NetDetailView_status(ListAPIView):
     """
-    View to retrieve, update, or delete a specific Net.
-    Ensures only Nets with a "completed" status in NetUseStats are returned.
+    View to list Nets, ensuring only those with "completed" status in NetUseStats
+    or without any associated NetUseStats are included.
     """
     serializer_class = NetSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         """
-        Filters Nets by company, farm, and optionally by id.
-        Only returns Nets with "completed" status in NetUseStats.
+        Filters Nets by company and farm.
+        Includes Nets not in NetUseStats and excludes those with "ongoing" status.
         """
         company_id = self.request.query_params.get('company')
         farm_id = self.request.query_params.get('farm')
-        net_id = self.request.query_params.get('id')  # Optional Net ID
-        queryset = Net.objects.all()
 
-        if company_id:
-            queryset = queryset.filter(company_id=company_id)
-        if farm_id:
-            queryset = queryset.filter(farm_id=farm_id)
-        if net_id:
-            queryset = queryset.filter(id=net_id)
+        if not company_id or not farm_id:
+            raise ValueError("Both 'company' and 'farm' query parameters are required.")
 
-        # Filter by "completed" status in NetUseStats
-        completed_net_ids = NetUseStats.objects.filter(
-            stats="completed"
-        ).values_list('net_id', flat=True)
-        queryset = queryset.filter(id__in=completed_net_ids)
+        queryset = Net.objects.filter(company_id=company_id, farm_id=farm_id)
+
+        # Exclude Nets with "ongoing" status and include those not in NetUseStats
+        ongoing_net_ids = NetUseStats.objects.filter(stats="ongoing").values_list('net_id', flat=True)
+        queryset = queryset.exclude(id__in=ongoing_net_ids)
 
         return queryset
-
-    def perform_update(self, serializer):
-        """
-        Validates and updates a Net.
-        """
-        company = serializer.validated_data.get('company', serializer.instance.company)
-        farm = serializer.validated_data.get('farm', serializer.instance.farm)
-        user = self.request.user
-
-        # Validate user permissions
-        if not has_permission(user, company, app_name="bsf", model_name="Net", action="edit"):
-            raise PermissionDenied("You do not have permission to edit this Net.")
-
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        """
-        Validates and deletes a Net and returns a success message.
-        """
-        company = instance.company
-        user = self.request.user
-
-        # Validate user permissions
-        if not has_permission(user, company, app_name="bsf", model_name="Net", action="delete"):
-            raise PermissionDenied("You do not have permission to delete this Net.")
-
-        instance.delete()
-
-    def delete(self, request, *args, **kwargs):
-        """
-        Overrides the DELETE method to include a success note.
-        """
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response(
-            {"detail": f"Net '{instance.name}' was successfully deleted."},
-            status=status.HTTP_200_OK,
-        )
-
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Retrieve Net details, ensuring it has a "completed" status in NetUseStats.
-        """
-        instance = self.get_object()
-        net_use_stats = NetUseStats.objects.filter(net=instance, stats="completed")
-
-        if not net_use_stats.exists():
-            raise NotFound("The requested Net does not have a 'completed' status in NetUseStats.")
-
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
 
 
 class BatchListCreateView(generics.ListCreateAPIView):
@@ -767,46 +795,111 @@ class DurationSettingsDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+'''
+Example JSON data for creating a new NetUseStats entry:
+class NetUseStatsListCreateView(generics.ListCreateAPIView):{
+    "company": 1,
+    "farm": 2,
+    "batch": 3,
+    "net": 5,
+    "lay_start": "2024-12-06",
+    "stats": "ongoing",
+    "media": [
+        {"title": "Net Image 1", "file": "<file_1>"},
+        {"title": "Net Image 2", "file": "<file_2>"}
+    ]
+}
+'''
 
+from rest_framework.decorators import action
+from django.db.models import Q  # Add Q for advanced filtering
 
 class NetUseStatsListCreateView(generics.ListCreateAPIView):
     """
-    View to list all NetUseStats or create a new entry.
+    View to list all NetUseStats, create a new entry, and upload media files.
     """
     serializer_class = NetUseStatsSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        company_id = self.request.query_params.get("company")
-        farm_id = self.request.query_params.get("farm")
+    def create(self, request, *args, **kwargs):
+        """
+        Override create to handle both creating NetUseStats and uploading media.
+        """
+        # Handle NetUseStats creation
+        response = super().create(request, *args, **kwargs)
 
-        if not company_id:
-            raise PermissionDenied("'company' query parameter is required.")
+        # If creation is successful, handle media uploads
+        if response.status_code == status.HTTP_201_CREATED:
+            netusestats_id = response.data["id"]  # Capture the ID of the created NetUseStats
+            media_response = self._handle_media_uploads(request, netusestats_id)
+            if media_response.status_code != status.HTTP_201_CREATED:
+                return media_response
 
-        try:
-            company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
-            raise NotFound("The specified company does not exist.")
+        return response
 
-        # Check permissions for viewing
-        has_permission(
-            user=self.request.user,
-            company=company,
-            app_name="bsf",
-            model_name="NetUseStats",
-            action="view",
-        )
-
-        queryset = NetUseStats.objects.filter(company=company)
-
-        if farm_id:
-            queryset = queryset.filter(farm_id=farm_id)
-
-        return queryset
-
+    @transaction.atomic
     def perform_create(self, serializer):
-        company_id = self.request.data.get("company")
-        farm_id = self.request.data.get("farm")
+        """
+        Creates a new NetUseStats entry.
+        """
+        company, _ = self._get_company_and_validate_permissions("add", for_create=True)
+        # Save and capture the created instance
+        self.instance = serializer.save(created_by=self.request.user, company=company)
+
+    def _handle_media_uploads(self, request, netusestats_id):
+        """
+        Handle media uploads after successful NetUseStats creation.
+        """
+        company_id = request.data.get("company")
+        if not company_id:
+            return Response({"detail": "'company' parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch and validate company
+        company = get_object_or_404(Company, id=company_id)
+
+        # Parse and organize media data
+        media_files = []
+        for key, value in request.data.items():
+            if key.startswith("media_title_"):
+                index = key.split("_")[-1]
+                media_files.append({"index": index, "title": value, "file": None})
+            elif key.startswith("media_file_"):
+                index = key.split("_")[-1]
+                media_entry = next((item for item in media_files if item["index"] == index), None)
+                if media_entry:
+                    media_entry["file"] = request.FILES.get(key)
+
+        # Validate and save each media file
+        for media_entry in media_files:
+            if not media_entry["file"]:
+                return Response(
+                    {"detail": f"File missing for media entry with index {media_entry['index']}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                Media.objects.create(
+                    title=media_entry["title"],
+                    file=media_entry["file"],
+                    company=company,
+                    app_name="bsf",
+                    model_name="NetUseStats",
+                    model_id=netusestats_id,  # Use the ID of the newly created NetUseStats
+                    status="active",
+                    comments="",
+                    uploaded_by=request.user,
+                )
+            except Exception as e:
+                return Response({"detail": f"Error saving file: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "Media files uploaded successfully."}, status=status.HTTP_201_CREATED)
+
+
+    def _get_company_and_validate_permissions(self, action, for_create=False):
+        """
+        Retrieves the company based on the request and validates permissions.
+        """
+        company_id = self.request.query_params.get("company") if not for_create else self.request.data.get("company")
+        farm_id = self.request.query_params.get("farm") if not for_create else self.request.data.get("farm")
 
         if not company_id:
             raise PermissionDenied("'company' parameter is required.")
@@ -816,50 +909,39 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
         except Company.DoesNotExist:
             raise NotFound("The specified company does not exist.")
 
-        # Validate permissions for adding
         has_permission(
             user=self.request.user,
             company=company,
             app_name="bsf",
             model_name="NetUseStats",
-            action="add",
+            action=action,
         )
 
-        serializer.save(created_by=self.request.user)
+        return company, farm_id
 
 
-class NetUseStatsDetailView(generics.RetrieveAPIView):
+class NetUseStatsDetailViewss(generics.RetrieveUpdateAPIView):
     """
-    View to retrieve all NetUseStats data for a specific batchId, farm, and company.
-    Returns associated media and all matching NetUseStats entries.
+    View to retrieve and update NetUseStats data, including handling media uploads via PATCH.
     """
     serializer_class = NetUseStatsSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         """
-        Filter NetUseStats by company, farm, and batchId.
+        Returns queryset for the given batchId, farm, and company with validation checks.
         """
         batch_id = self.kwargs.get("pk")  # batchId from URL
         company_id = self.request.query_params.get("company")
         farm_id = self.request.query_params.get("farm")
 
         if not company_id or not farm_id:
-            raise NotFound("Both 'company' and 'farm' query parameters are required.")
+            raise ValidationError("Both 'company' and 'farm' query parameters are required.")
 
-        # Validate company
-        try:
-            company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
-            raise NotFound("The specified company does not exist.")
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id, company=company)
 
-        # Validate farm
-        try:
-            farm = Farm.objects.get(id=farm_id, company=company)
-        except Farm.DoesNotExist:
-            raise NotFound("The specified farm does not belong to the given company.")
-
-        # Validate permissions
+        # Check user permission
         has_permission(
             user=self.request.user,
             company=company,
@@ -868,31 +950,765 @@ class NetUseStatsDetailView(generics.RetrieveAPIView):
             action="view",
         )
 
-        # Filter queryset
-        return NetUseStats.objects.filter(company=company, farm=farm, batch_id=batch_id)
+        return NetUseStats.objects.filter(company=company, farm=farm, created_by=self.request.user.id)
 
-    def retrieve(self, request, *args, **kwargs):
+    @transaction.atomic
+    def patch(self, request, *args, **kwargs):
         """
-        Retrieve NetUseStats data and associated media for the given batchId.
+        Handle PATCH requests to update NetUseStats and associated media files.
         """
-        queryset = self.get_queryset()
+        netusestats_id = self.kwargs.get("pk")
 
-        if not queryset.exists():
-            raise NotFound("No NetUseStats found for the specified batch, farm, and company.")
+        company_id = request.data.get("company")
+        if not company_id:
+            return Response({"detail": "'company' parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Serialize the NetUseStats data
-        net_use_stats_serializer = self.get_serializer(queryset, many=True)
+        # Fetch and validate company
+        company = get_object_or_404(Company, id=company_id)
 
-        # Fetch associated media
-        associated_media = Media.objects.filter(
+        # Check user permission
+        has_permission(
+            user=self.request.user,
+            company=company,
             app_name="bsf",
             model_name="NetUseStats",
-            model_id__in=queryset.values_list("id", flat=True),
-            company=queryset.first().company,
+            action="edit",
+        )
+
+        # Update the main NetUseStats instance
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        # Handle media uploads
+        media_response = self._handle_media_uploads(request, netusestats_id)
+        if media_response.status_code != status.HTTP_201_CREATED:
+            return media_response
+
+        return Response({"detail": "NetUseStats and media updated successfully."}, status=status.HTTP_200_OK)
+
+    def _handle_media_uploads(self, request, netusestats_id):
+        """
+        Handle media uploads for NetUseStats updates.
+        """
+        company_id = request.data.get("company")
+        if not company_id:
+            return Response({"detail": "'company' parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch and validate company
+        company = get_object_or_404(Company, id=company_id)
+
+        # Parse media data
+        media_files = self._parse_media_data(request)
+
+        # Validate and save each media file
+        for media_entry in media_files:
+            if not media_entry["file"]:
+                return Response(
+                    {"detail": f"File missing for media entry with index {media_entry['index']}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                Media.objects.create(
+                    title=media_entry["title"],
+                    file=media_entry["file"],
+                    company=company,
+                    app_name="bsf",
+                    model_name="NetUseStats",
+                    model_id=netusestats_id,
+                    status="active",
+                    comments=media_entry["comments"],
+                    uploaded_by=request.user,
+                )
+            except Exception as e:
+                return Response({"detail": f"Error saving file: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "Media files uploaded successfully."}, status=status.HTTP_201_CREATED)
+
+    def _parse_media_data(self, request):
+        """
+        Parse media-related keys from the request and group them by index.
+        """
+        media_files = []
+        for key, value in request.data.items():
+            if key.startswith("media_title_"):
+                index = key.split("_")[-1]
+                media_files.append({"index": index, "title": value, "file": None, "comments": None})
+            elif key.startswith("media_file_"):
+                index = key.split("_")[-1]
+                media_entry = next((item for item in media_files if item["index"] == index), None)
+                if media_entry:
+                    media_entry["file"] = request.FILES.get(key)
+            elif key.startswith("media_comments_"):
+                index = key.split("_")[-1]
+                media_entry = next((item for item in media_files if item["index"] == index), None)
+                if media_entry:
+                    media_entry["comments"] = value
+        return media_files
+
+class NetUseStatsDetailView(generics.RetrieveUpdateAPIView):
+    """
+    View to retrieve and update NetUseStats data, including handling media uploads via PATCH.
+    """
+    serializer_class = NetUseStatsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def validate_request_data(self, data, required_fields):
+        """
+        Helper method to validate required fields in the request data.
+        """
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            raise ValidationError(
+                f"The following fields are required: {', '.join(missing_fields)}"
+            )
+
+    def get_queryset(self):
+        """
+        Returns queryset for the given batchId, farm, and company with validation checks.
+        """
+        company_id = self.request.data.get("company")
+        farm_id = self.request.data.get("farm")
+
+        # Validate required query parameters
+        if not company_id or not farm_id:
+            raise ValidationError("Both 'company' and 'farm' query parameters are required.")
+
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id, company=company)
+
+        # Check user permission
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="view",
+        )
+
+        return NetUseStats.objects.filter(company=company, farm=farm, created_by=self.request.user.id)
+
+    @transaction.atomic
+    def patch(self, request, *args, **kwargs):
+        """
+        Handle PATCH requests to update NetUseStats and associated media files.
+        """
+        netusestats_id = self.kwargs.get("pk")
+        data = request.data
+
+        # Validate required fields
+        self.validate_request_data(data, ["company", "farm", "batch"])
+
+        company_id = data.get("company")
+        farm_id = data.get("farm")
+        batch_id = data.get("batch")
+
+        # Fetch and validate models
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id)
+        batch = get_object_or_404(Batch, id=batch_id)
+
+        # Validate farm-company relationship
+        if farm.company_id != company.id:
+            return Response(
+                {"detail": f"Farm with ID {farm_id} does not belong to the company with ID {company_id}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check user permission
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="edit",
+        )
+
+        # Update the main NetUseStats instance
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        # Handle media uploads
+        try:
+            media_response = handle_media_uploads(
+                request=request,
+                data_id=netusestats_id,
+                model_name="NetUseStats",
+                app_name="bsf"
+            )
+            if media_response.status_code != status.HTTP_201_CREATED:
+                return media_response
+        except Exception as e:
+            return Response({"detail": f"Error during media upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "NetUseStats and media updated successfully."}, status=status.HTTP_200_OK)
+
+from django.core.exceptions import ObjectDoesNotExist
+
+class NetUseStatsRetrieveAllView(APIView):
+    """
+    API view to retrieve NetUseStats for a specific company, farm, and batch.
+    Optionally retrieves data for a specified ID using the query parameter (?id=<id>).
+    Includes associated media for each NetUseStats entry.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_object_or_404(self, model, **kwargs):
+        """
+        Helper method to get an object or raise a 404 response.
+        """
+        try:
+            return model.objects.get(**kwargs)
+        except model.DoesNotExist:
+            raise ObjectDoesNotExist
+
+    def validate_query_params(self, params, required_fields):
+        """
+        Helper method to validate required query parameters.
+        """
+        for field in required_fields:
+            if not params.get(field):
+                return Response(
+                    {"detail": f"'{field}' query parameter is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        return None
+
+    def get(self, request, *args, **kwargs):
+        # Required query parameters
+        query_params = request.query_params
+        validation_error = self.validate_query_params(query_params, ["company", "farm", "batch"])
+        if validation_error:
+            return validation_error
+
+        company_id = query_params.get("company")
+        farm_id = query_params.get("farm")
+        batch_id = query_params.get("batch")
+        net_use_stats_id = query_params.get("id")
+
+        # Fetch and validate models
+        try:
+            company = self.get_object_or_404(Company, id=company_id)
+            farm = self.get_object_or_404(Farm, id=farm_id)
+            batch = self.get_object_or_404(Batch, id=batch_id)
+        except ObjectDoesNotExist as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if the farm belongs to the company
+        if farm.company_id != company.id:
+            return Response(
+                {"detail": f"Farm with ID {farm_id} does not belong to the company with ID {company_id}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Query NetUseStats
+        queryset = NetUseStats.objects.filter(company=company, farm=farm, batch=batch)
+        if not queryset.exists():
+            return Response(
+                {"detail": f"No NetUseStats entries found for the specified parameters."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Retrieve a single entry if `id` is provided
+        if net_use_stats_id:
+            try:
+                net_use_stat = queryset.get(id=net_use_stats_id)
+            except NetUseStats.DoesNotExist:
+                return Response(
+                    {"detail": f"NetUseStats with ID {net_use_stats_id} does not exist in the specified filters."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            return self.build_response(net_use_stat, company)
+
+        # Retrieve all matching entries
+        return self.build_response(queryset, company)
+
+    def build_responses(self, data, company):
+        """
+        Helper method to build the response with associated media.
+        """
+        if isinstance(data, NetUseStats):
+            data = [data]
+
+        result = []
+        for net_use_stat in data:
+            serialized_data = NetUseStatsSerializer(net_use_stat).data
+            associated_media = get_associated_media(
+                data_id=net_use_stat.id,
+                model_name="NetUseStats",
+                app_name="bsf",
+                company=company,
+            )
+            media_serializer = MediaSerializer(associated_media, many=True)
+            serialized_data["associated_media"] = media_serializer.data
+            result.append(serialized_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+    def build_response(self, data, company):
+        """
+        Helper method to build the response with associated media and net data.
+        """
+        if isinstance(data, NetUseStats):
+            data = [data]
+
+        result = []
+        for net_use_stat in data:
+            # Serialize NetUseStats
+            serialized_data = NetUseStatsSerializer(net_use_stat).data
+            
+            # Fetch associated media
+            associated_media = get_associated_media(
+                data_id=net_use_stat.id,
+                model_name="NetUseStats",
+                app_name="bsf",
+                company=company,
+            )
+            media_serializer = MediaSerializer(associated_media, many=True)
+            serialized_data["associated_media"] = media_serializer.data
+
+            # Fetch and include associated Net data
+            try:
+                associated_net = Net.objects.get(id=net_use_stat.net_id)
+                net_serializer = NetSerializer(associated_net)
+                serialized_data["associated_net"] = net_serializer.data
+            except Net.DoesNotExist:
+                serialized_data["associated_net"] = None
+
+            # Add to the response list
+            result.append(serialized_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+
+def save_media_files(media_data, company, app_name, model_name, model_id, user):
+    """
+    Saves media files associated with a specific model instance.
+
+    Args:
+        media_data (list): A list of dictionaries containing media details (title, file).
+        company (Company): The company associated with the media.
+        app_name (str): The app name where the requesting model resides.
+        model_name (str): The name of the requesting model.
+        model_id (int): The ID of the associated model instance.
+        user (User): The user making the request.
+
+    Returns:
+        list: A list of created Media instances.
+    """
+    created_media = []
+
+    for item in media_data:
+        title = item.get("title")
+        file = item.get("file")
+
+        if not title or not file:
+            raise ValidationError("Each media entry must include 'title' and 'file'.")
+
+        media_instance = Media.objects.create(
+            title=title,
+            file=file,
+            company=company,
+            app_name=app_name,
+            model_name=model_name,
+            model_id=model_id,
+            status="active",
+            uploaded_by=user,
+        )
+        created_media.append(media_instance)
+
+    return created_media
+
+# NetUseStats views change retuend net value from id to name.
+def build_response(self, data, company):
+    """
+    Helper method to build the response with associated media and replace `id` with `name`.
+    """
+    if isinstance(data, NetUseStats):
+        data = [data]
+
+    result = []
+    for net_use_stat in data:
+        serialized_data = NetUseStatsSerializer(net_use_stat).data
+
+        # Replace `id` with `name`
+        serialized_data['name'] = net_use_stat.name  # Ensure the model has a `name` attribute
+        if 'id' in serialized_data:
+            del serialized_data['id']
+
+        # Fetch associated media
+        associated_media = get_associated_media(
+            data_id=net_use_stat.id,
+            model_name="NetUseStats",
+            app_name="bsf",
+            company=company,
         )
         media_serializer = MediaSerializer(associated_media, many=True)
+        serialized_data["associated_media"] = media_serializer.data
+        result.append(serialized_data)
 
-        return Response({
-            "net_use_stats": net_use_stats_serializer.data,
-            "associated_media": media_serializer.data,
+    return Response(result, status=status.HTTP_200_OK)
+
+
+def post(self, request, *args, **kwargs):
+    """
+    Handle POST requests to upload media files with flat structure.
+    """
+    company_id = request.data.get("company")
+    if not company_id:
+        return Response({"detail": "'company' parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Fetch and validate company
+    company = get_object_or_404(Company, id=company_id)
+
+    # Parse and organize media data
+    media_files = []
+    for key, value in request.data.items():
+        if key.startswith("media_title_"):
+            index = key.split("_")[-1]
+            media_files.append({"index": index, "title": value, "file": None})
+        elif key.startswith("media_file_"):
+            index = key.split("_")[-1]
+            media_entry = next((item for item in media_files if item["index"] == index), None)
+            if media_entry:
+                media_entry["file"] = request.FILES.get(key)
+
+    # Validate and save each media file
+    for media_entry in media_files:
+        if not media_entry["file"]:
+            return Response(
+                {"detail": f"File missing for media entry with index {media_entry['index']}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            Media.objects.create(
+                title=media_entry["title"],
+                file=media_entry["file"],
+                company=company,
+                app_name="bsf",
+                model_name="NetUseStats",
+                model_id=request.data.get("net"),  # Assuming `net` represents the NetUseStats ID
+                status="active",
+                comments="",  # Add comments handling if required
+                uploaded_by=request.user,
+            )
+        except Exception as e:
+            return Response({"detail": f"Error saving file: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"detail": "Media files uploaded successfully."}, status=status.HTTP_201_CREATED)
+
+
+class PondView(APIView):
+    permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+
+    def get(self, request, *args, **kwargs):
+        """
+        Handles:
+        - Viewing all ponds or a specific pond by ID.
+        - Returning only available ponds or checking if a specific pond is available.
+        """
+        company_id = request.query_params.get("company")
+        farm_id = request.query_params.get("farm")
+        pond_id = kwargs.get("id")
+        is_available_query = request.query_params.get("available")  # Request to check if the pond is available for use (no ongoing stats)
+
+        if not company_id or not farm_id:
+            return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch and validate the company and farm
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id, company=company)
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "Pond", "view")
+
+        if pond_id:
+            # Retrieve a specific pond by ID
+            pond = get_object_or_404(Pond, id=pond_id, farm=farm, company=company)
+
+            if is_available_query == "true":
+                pond = get_object_or_404(Pond, id=pond_id, farm=farm, company=company, status="Active")
+                # Check if the specific pond is available
+                ongoing_status = PondUseStats.objects.filter(farm=farm, pond=pond, status="Ongoing").exists()
+                if not ongoing_status:
+                    media = get_associated_media(pond.id, "Ponds", "bsf", company)
+                    pond_data = {
+                        "pond": PondSerializer(pond).data,
+                        "associated_media": MediaSerializer(media, many=True).data
+                    }
+                    return Response({"available": True, "pond_data": pond_data}, status=status.HTTP_200_OK)
+                return Response({"available": False, "pond_data": None}, status=status.HTTP_200_OK)
+
+            # If `available` is not requested, return the specific pond details
+            media = get_associated_media(pond.id, "Ponds", "bsf", company)
+            pond_data = {
+                "pond": PondSerializer(pond).data,
+                "associated_media": MediaSerializer(media, many=True).data
+            }
+            return Response(pond_data, status=status.HTTP_200_OK)
+
+        if is_available_query == "true":
+            # Fetch only available ponds
+            active_ponds = Pond.objects.filter(farm=farm, company=company, status="Active")
+            available_ponds = [
+                pond for pond in active_ponds
+                if not PondUseStats.objects.filter(farm=farm, pond=pond, status="Ongoing").exists()
+            ]
+            results = []
+            for pond in available_ponds:
+                media = get_associated_media(pond.id, "Ponds", "bsf", company)
+                results.append({
+                    "pond": PondSerializer(pond).data,
+                    "associated_media": MediaSerializer(media, many=True).data
+                })
+            return Response(results, status=status.HTTP_200_OK)
+
+        # Default behavior: Fetch all ponds
+        ponds = Pond.objects.filter(farm=farm)
+        results = []
+        for pond in ponds:
+            media = get_associated_media(pond.id, "Ponds", "bsf", company)
+            results.append({
+                "pond": PondSerializer(pond).data,
+                "associated_media": MediaSerializer(media, many=True).data
+            })
+        return Response(results, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        """
+        Create a new pond.
+        """
+        company_id = request.data.get("company")
+        farm_id = request.data.get("farm")
+
+        if not company_id or not farm_id:
+            return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch and validate the company and farm
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id, company=company)
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "Pond", "add")
+
+        # Create a mutable copy of request.data
+        data = deepcopy(request.data)
+        data["farm"] = farm.id  # Associate with the farm
+        data["created_by"] = request.user.id  # Set created_by to the logged-in user
+
+        serializer = PondSerializer(data=data)
+
+        if serializer.is_valid():
+            pond = serializer.save()
+
+            # Handle associated media uploads
+            handle_media_uploads(request, pond.id, "Pond", "bsf")
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, *args, **kwargs):
+        """
+        Edit an existing pond.
+        """
+        company_id = request.data.get("company")
+        farm_id = request.data.get("farm")
+        pond_id = kwargs.get("id")
+
+        if not company_id or not farm_id or not pond_id:
+            return Response({"detail": "'company', 'farm', and 'pond_id' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch and validate the company, farm, and pond
+        company = get_object_or_404(Company, id=company_id)
+        farm = get_object_or_404(Farm, id=farm_id, company=company)
+        pond = get_object_or_404(Pond, id=pond_id, farm=farm)
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "Pond", "edit")
+
+        # Create a mutable copy of request.data
+        data = deepcopy(request.data)
+
+        serializer = PondSerializer(pond, data=data, partial=True)
+        if serializer.is_valid():
+            updated_pond = serializer.save()
+
+            # Handle associated media uploads
+            handle_media_uploads(request, updated_pond.id, "Pond", "bsf")
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class PondUseStatsView(APIView):
+    permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+    
+    VALID_HARVEST_STAGES = {
+            "Incubation": "Incubation",
+            "Nursery": "Nursery",
+            "Growout": "Growout",
+            "PrePupa": "PrePupa",
+            "Pupa": "Pupa"
+        }
+
+    def get(self, request, *args, **kwargs):
+        """
+        Retrieve PondUseStats for a specific batch, farm, and company, optionally filtered by harvest_stage.
+        """
+        validation_result = validate_company_farm_and_batch(request)
+        if isinstance(validation_result, Response):
+            return validation_result
+
+        company = validation_result["company"]
+        farm = validation_result["farm"]
+        batch = validation_result["batch"]
+        pondusestats_id = kwargs.get("id")
+        ongoing = request.query_params.get("ongoing", "false").lower() == "true"
+        harvest_stage = request.query_params.get("harvest_stage")
+
+        # Check for invalid harvest_stage
+        if harvest_stage and harvest_stage not in self.VALID_HARVEST_STAGES:
+            return Response(
+                {"detail": f"Invalid harvest_stage '{harvest_stage}'. Valid options are: {list(self.VALID_HARVEST_STAGES.keys())}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "PondUseStats", "view")
+
+        if pondusestats_id:
+            # Fetch a single PondUseStats by ID
+            pondusestats = PondUseStats.objects.filter(
+                id=pondusestats_id, farm=farm, batch=batch
+            )
+            if ongoing:
+                pondusestats = pondusestats.filter(status="Ongoing")
+
+            if harvest_stage:
+                pondusestats = pondusestats.filter(harvest_stage=self.VALID_HARVEST_STAGES[harvest_stage])
+
+            if not pondusestats.exists():
+                return Response(
+                    {"detail": "PondUseStats not found or does not match the provided filters."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            pondusestats = pondusestats.first()
+            media = get_associated_media(pondusestats.id, "PondUseStats", "bsf", company)
+            return Response({
+                "pondusestats": PondUseStatsSerializer(pondusestats).data,
+                "associated_media": MediaSerializer(media, many=True).data,
+            }, status=status.HTTP_200_OK)
+
+        # Fetch all PondUseStats for the batch
+        pondusestats_query = PondUseStats.objects.filter(farm=farm, batch=batch)
+        if ongoing:
+            pondusestats_query = pondusestats_query.filter(status="Ongoing")
+
+        if harvest_stage:
+            pondusestats_query = pondusestats_query.filter(harvest_stage=self.VALID_HARVEST_STAGES[harvest_stage])
+
+        results = [
+            {
+                "pondusestats": PondUseStatsSerializer(pondusestats).data,
+                "associated_media": MediaSerializer(
+                    get_associated_media(pondusestats.id, "PondUseStats", "bsf", company),
+                    many=True
+                ).data,
+            }
+            for pondusestats in pondusestats_query
+        ]
+
+        return Response(results, status=status.HTTP_200_OK)
+    def post(self, request, *args, **kwargs):
+        """
+        Create a new PondUseStats.
+        """
+        validation_result = validate_company_farm_and_batch(request)
+        if isinstance(validation_result, Response):
+            return validation_result
+
+        company = validation_result["company"]
+        farm = validation_result["farm"]
+        batch = validation_result["batch"]
+        pond_id = request.data.get("pond")
+
+        if not pond_id:
+            return Response(
+                {"detail": "'pond' parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pond = get_object_or_404(Pond, id=pond_id, farm=farm)
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "PondUseStats", "add")
+
+        if pond.status != "Completed":
+            return Response(
+                {"detail": "Pond status must be 'Completed' to create PondUseStats."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data = request.data.copy()
+        data.update({
+            "pond": pond.id,
+            "batch": batch.id,
+            "created_by": request.user.id,
         })
+
+        serializer = PondUseStatsSerializer(data=data)
+        if serializer.is_valid():
+            pondusestats = serializer.save()
+            handle_media_uploads(request, pondusestats.id, "PondUseStats", "bsf")
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, *args, **kwargs):
+        """
+        Update an existing PondUseStats.
+        """
+        validation_result = validate_company_farm_and_batch(request)
+        if isinstance(validation_result, Response):
+            return validation_result
+
+        company = validation_result["company"]
+        farm = validation_result["farm"]
+        batch = validation_result["batch"]
+        pondusestats_id = kwargs.get("id")
+
+        if not pondusestats_id:
+            return Response(
+                {"detail": "'pondusestats_id' parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pondusestats = get_object_or_404(PondUseStats, id=pondusestats_id, farm=farm, batch=batch)
+
+        # Check permissions
+        has_permission(request.user, company, "bsf", "PondUseStats", "edit")
+
+        data = request.data.copy()
+        if "approver_id" in data and data["approver_id"] != str(request.user.id):
+            return Response(
+                {"detail": "Only the logged-in user can set approver_id."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = PondUseStatsSerializer(pondusestats, data=data, partial=True)
+        if serializer.is_valid():
+            updated_ponduse_stats = serializer.save()
+            handle_media_uploads(request, updated_ponduse_stats.id, "PondUseStats", "bsf")
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+

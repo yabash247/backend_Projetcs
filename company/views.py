@@ -604,47 +604,66 @@ class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.delete()
 
 
+from django.db.models import Q
 
 class MediaListCreateView(generics.ListCreateAPIView):
     """
     View to list all media files or upload a new media file.
+
+    Filters:
+    - `company`: Filter by company ID.
+    - `branch`: Filter by branch ID.
+    - `app_name`: Filter by application name.
+    - `model_name`: Filter by model name.
+
+    Permission:
+    - User must be authenticated.
+    - User must have the `add` permission for the `Media` model.
     """
     serializer_class = MediaSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         """
-        Filters media by company, branch, app_name, and model_name.
+        Retrieves media entries filtered by the specified query parameters.
         """
+        queryset = Media.objects.all()
         company_id = self.request.query_params.get("company")
         branch_id = self.request.query_params.get("branch")
         app_name = self.request.query_params.get("app_name")
         model_name = self.request.query_params.get("model_name")
-        queryset = Media.objects.all()
 
+        filters = Q()
         if company_id:
-            queryset = queryset.filter(company_id=company_id)
+            filters &= Q(company_id=company_id)
         if branch_id:
-            queryset = queryset.filter(branch_id=branch_id)
+            filters &= Q(branch_id=branch_id)
         if app_name:
-            queryset = queryset.filter(app_name=app_name)
+            filters &= Q(app_name=app_name)
         if model_name:
-            queryset = queryset.filter(model_name=model_name)
+            filters &= Q(model_name=model_name)
 
+        queryset = queryset.filter(filters)
         return queryset
 
     def perform_create(self, serializer):
         """
         Validates and creates a new media entry.
+
+        Raises:
+        - PermissionDenied: If the user does not have permission to add media.
         """
-        company = serializer.validated_data["company"]
+        company = serializer.validated_data.get("company")
         user = self.request.user
 
         # Validate user permissions
         if not has_permission(user, company, app_name="company", model_name="Media", action="add"):
             raise PermissionDenied("You do not have permission to add media files for this company.")
 
-        serializer.save(uploaded_by=user)
+        try:
+            serializer.save(uploaded_by=user)
+        except Exception as e:
+            raise PermissionDenied(f"An error occurred while saving the media: {str(e)}")
 
 
 class MediaDetailView(generics.RetrieveUpdateDestroyAPIView):

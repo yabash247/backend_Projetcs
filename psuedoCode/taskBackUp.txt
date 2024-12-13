@@ -1,0 +1,278 @@
+
+
+        
+        Get all ponds.
+            Check remove from list any pond that has an ongoing status with pondUseStats
+            Check remove from list any pond that has an broken or inactive status with ponds
+            React : if ?Nursery or ?Incubation wanting to be put in Growout pond, warn user and send notification to users manager.
+            Display batch info
+
+        Add to batch.
+
+
+        on add 
+        
+        Requirements: create slice, state etc to retrive edit NetUseStats from endpoint.
+
+            endpoint url : `${backendUrl}/api/bsf/duration-settings/?company=${company}&farm=${farm}`
+
+            accessToken needed and shall be requested in the slice through rootstate.
+
+            sample of data retured in sucessfull request :
+                [
+                    {
+                        "id": 3,
+                        "laying_duration": 4,
+                        "nursery_duration": 3,
+                        "incubation_duration": 4,
+                        "growout_duration": 5,
+                        "puppa_in_net_replenishment_duration": 3,
+                        "feed1_fermentation_period": 15,
+                        "feed2_fermentation_period": 5,
+                        "attractant_duration": 3,
+                        "general_inspection_duration": 15,
+                        "net_cleanup_duration": 14,
+                        "company": 5,
+                        "farm": 8
+                    }
+                ]
+
+
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+
+            
+
+            Existing data:
+                    
+        
+        Can I provide you my current class netUseStatsSlice.ts code? I would like you to carefully review and remember it.  
+        After making the required changes, I please provide you with a complete, updated file that I can easily copy and replace without any missing parts.  
+
+        I made some changes to the overall file, can I provide you the revised file so you can memorize and use the revised file hence fort to make futher updates ?
+
+        Media Upload Array workarround 
+            To work around the flat structure of media files and related metadata, you can dynamically extract 
+            the indices from the keys in the request data and then group the values by matching indices.
+
+
+         Requirements : Create a pond model. 
+                This would be a pond where black soldier flies are raised. 
+                pondTypes (concrte, Rubber-Tire.)
+                pond must belong to a farm in a company.
+                The name of the pond must be unique to that farm and company. 
+                The pond should also have dimensions values for (width, length, depth) and shape (circular, rectangular, square) 
+                farm instance from Farm model (id=farm)
+                company instance from company.Compay model (id=company)
+                ponds Use (Incubator, Nursery, Grow Out, Multiple )  
+                created date = now 
+                pondName
+                status (active, inactive, broken) 
+                comments 
+                created By = user instance from users.user model
+
+
+
+Updated method ensures the logic includes:
+
+    Change this too : # Filter by !"ongoing" status in NetUseStats : change the filtering logic so it excludes entries with an "ongoing" status in NetUseStats
+    include Net objects that aren't found in NetUseStats.objects alongside filtering out those with an "ongoing" status
+
+    1. Nets Not in NetUseStats.
+    2. Nets in NetUseStats but not marked as ongoing
+
+
+
+Here's the updated BatchDetailsModal.tsx file that integrates fetching NetUseStats when the "Laying" radio button is selected. 
+    It uses the fetchNetUseStats thunk to populate the payload result into the selectedOption view.
+
+
+Enhance Authority Model, Serializer and Views :
+  1. Notify logged in user of all model that has specified company data in but not included in authority model.
+      a. Check if has_permission 
+      b. Prevent multiple additions of the same model_name for a specific company
+          i.    A specific model_name cannot be added multiple times for the same company.
+          ii.   Existing authority data can be modified.
+          iii.  The model_name field cannot be changed once created.
+      c. Include the app_name when validating permissions.
+      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
+      e. has_permission(user, company, app_name, model_name, action, min_level=1): requires app_name please update views class accordingly.
+      f. EditAuthorityView(generics.RetrieveUpdateAPIView): do not allow change of model_name in edit
+
+
+
+Update FarmDetail : 
+        1. Add a modal that on click opens StaffMemberList : <Route path="/staff-members/:appName/:companyId/:farmId/:userId?" element={<StaffMemberList />}/>
+            include 
+
+    Important Instruction:
+        1.The changes should be made in the same class, preserving the original implementation structure.
+
+
+    Exisiting data:
+    
+
+create a def validate function for the StaffMember model serializer:
+            1. Check if user provided in data.get, is a valid user in users.model import User 
+            2. Check if user is a staff (Staff(models.Model)) of company (companyId)
+            3. Check if company provided in data.get, is valid (Company(models.Model))
+            4. Check if farrm provided in data.get, is valid (class Farm(models.Model))
+            5. Check in (class Farm(models.Model)) if farm belongs to company 
+            6. if all true create/save data
+            7. If exisitng user with same company, same farm, same position, same level and same status(active) as new do not save. send waring
+            8. If exisitng user with same company, same farm, but different position, and/or level, change exisitng status to inactive and save new
+            9. Run has_permission function. (from company.utils import has_permission)
+            
+create comprehensive implementation of all the required updates in the relevant files
+
+Create Endpoint Views to Retrieve, update, or delete a specific staff member:
+    Retrieve all staff members of comany and farm instance if not userID is provided. 
+
+Important Instruction:
+    1.The changes should be made in the same class, preserving the original implementation structure.
+
+Create StaffMember Slice 
+    1a. appName needs to be sent when requesting staffMember slice
+            api end point is : ${backendURL}/api/${appName}/branch/?company=${companyId}&farm=${farmId}&user=${userId}. 
+            &user=${userId} as optional.
+    1. aceesstoken needed in api endpoint request,  
+    2. aceesstoken should be requested in the slice by Rootstate
+    3. Create needed state as well.
+    4. provide app.tsx update 
+Create StaffMember List component 
+    1. Provide an amazing material deisgn display
+    2. 
+
+Exisiting data:
+        
+
+
+
+
+
+Enhance Authority Model, Serializer and Views :
+  1. Notify logged in user of all model that has specified company data in but not included in authority model.
+      a. Check if has_permission 
+      b. Prevent multiple additions of the same model_name for a specific company
+          i.    A specific model_name cannot be added multiple times for the same company.
+          ii.   Existing authority data can be modified.
+          iii.  The model_name field cannot be changed once created.
+      c. Include the app_name when validating permissions.
+      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
+
+  Important Instruction:
+    1.  The changes should be made in the same class, preserving the original implementation structure.
+    2.  Provide the complete implementation
+    
+
+  Exisiting data:
+  
+
+
+
+
+    def get_queryset(self):
+        """
+        Filters NetUseStats by company and optionally by farm.
+        """
+        company_id = self.request.query_params.get("company")
+        farm_id = self.request.query_params.get("farm")
+
+        if not company_id:
+            raise PermissionDenied("'company' query parameter is required.")
+
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.") 
+
+        # Check permissions
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action="view",
+        )
+
+        queryset = NetUseStats.objects.filter(company=company)
+
+        # If farm_id is specified, filter by farm
+        if farm_id:
+            queryset = queryset.filter(farm_id=farm_id)
+
+        return queryset
+
+
+
+
+Requirements: create slice, state, component etc to edit NetUseStats from endpoint.
+
+            endpoint url : `${backendUrl}/api/bsf/net-use-stats/<int:pk>/
+
+            Patch request
+
+            script type : typeScript 
+
+            <int:pk> = NetUseStats.id = id
+
+            accessToken needed and shall be requested in the slice through rootstate.
+
+            sample of data retured in sucessfull request :
+                [
+                    {
+                        
+                        "lay_end": date with  now as default,
+                        "stats": "completed",
+                        "harvest_weight": 3,
+                        "batch": 1,
+                        "company": 5,
+                        "farm": 8
+
+                        # Dynamic 
+                        "media_title_0": title,
+                        "media_file_0": file,
+                        "media_comments_0": 5,
+                        "media_title_1": 4,
+                        "media_file_1": file,
+                        "media_comments_1": 5,
+                        "media_title_2": 4,
+                        "media_file_2": file,
+                        "media_comments_2": 5,
+                    }
+                ]
+
+                try {
+                    const formData = new FormData();
+                    formData.append('company', companyId.toString());
+                    formData.append('farm', farmId.toString());
+                    formData.append('batch', batchId.toString());
+                    formData.append('harvest_weight', harvest_weight.toString());
+                    formData.append('lay_end', lay_end);
+                    formData.append('stats', stats);
+
+                    // Flatten the media array into individual formData keys
+                    media.forEach((item, index) => {
+                      formData.append(`media_title_${index}`, item.title);
+                      formData.append(`media_file_${index}`, item.file);
+                      if (item.comments) {
+                        formData.append(`media_comments_${index}`, item.comments);
+                      }
+                    });
+
+
+                All media will be sent as flat structure of media files and related metadata, so we can dynamically extract 
+                the indices from the keys in the request data and then group the values by matching indices 
+
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+
+            
+
+            Existing data:
