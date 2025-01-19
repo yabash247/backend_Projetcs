@@ -1,10 +1,14 @@
 from django.contrib.auth import get_user_model
 from rest_framework.exceptions import PermissionDenied
-from .models import Authority, Staff, StaffLevels, Media, Company
+from .models import Authority, Staff, StaffLevels, Media, Company, Branch, RewardsPointsTracker, Task, Media, ActivityOwner
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework import status
+from django.apps import apps
+import logging
+from django.core.mail import send_mail
+
 
 User = get_user_model()
 
@@ -221,3 +225,430 @@ def handle_media_uploads(request, data_id, model_name, app_name):
 
     return Response({"detail": "Media files uploaded successfully."}, status=status.HTTP_201_CREATED)
 
+def validate_query_params(self, params, required_fields):
+        """
+        Helper method to validate required query parameters.
+        """
+        for field in required_fields:
+            if not params.get(field):
+                return Response(
+                    {"detail": f"'{field}' query parameter is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        return None
+
+
+from PIL import Image, UnidentifiedImageError
+from PIL.ExifTags import TAGS
+import mimetypes
+
+def handle_file(media_file,  allowed_types):
+    try:
+        mime_type, _ = mimetypes.guess_type(media_file.name)
+        if mime_type in ["image/png"]:
+            print(f"Skipping EXIF for {media_file.name} (PNG file)")
+            return  # PNG files do not have EXIF data
+
+        image = Image.open(media_file)
+        exif_data = image._getexif()  # Attempt to retrieve EXIF data
+
+        if exif_data:
+            for tag_id, value in exif_data.items():
+                tag = TAGS.get(tag_id, tag_id)
+                print(f"{tag}: {value}")
+    except UnidentifiedImageError:
+        print(f"File {media_file.name} is not a valid image.")
+    except AttributeError:
+        print(f"File {media_file.name} does not have EXIF data.")
+
+ALLOWED_TYPES = ["video/mp4", "image/jpeg", "image/png"]
+def is_valid_file(media_file):
+    mime_type, _ = mimetypes.guess_type(media_file.name)
+    if mime_type not in ALLOWED_TYPES:
+        raise ValueError(f"Unsupported file type: {mime_type}")
+    return True
+
+
+import os
+from django.conf import settings
+
+def save_uploaded_file(media_file, destination_dir):
+    """
+    Save an uploaded file to a specific directory.
+    """
+    if not os.path.exists(destination_dir):
+        os.makedirs(destination_dir)
+
+    file_path = os.path.join(destination_dir, media_file.name)
+    with open(file_path, 'wb+') as destination:
+        for chunk in media_file.chunks():
+            destination.write(chunk)
+    return file_path
+
+
+
+from django.utils.timezone import now
+from django.db.models import Sum
+
+class PointsRewardSystem:
+    def __init__(self, request):
+        """
+        Initialize the reward system with dynamic maximum monthly points for the staff.
+
+        Args:
+            staff (Staff): The staff member for whom the reward system is initialized.
+        """
+
+        self.request = request
+
+        # Validate and fetch company, branch, and staff instances
+        company_id = request.data.get("company")
+        branch_id = request.data.get("branch")
+        user_id = request.data.get("staff")
+        task_id=request.data.get("task")
+
+        if not company_id:
+            raise PermissionDenied("The 'company' query parameter is required.")
+        if not branch_id:
+            raise PermissionDenied("The 'branch' query parameter is required.")
+        if not user_id:
+            raise PermissionDenied("The 'staff' query parameter is required.")
+        if not task_id:
+            raise PermissionDenied("The 'task' query parameter is required.")
+        
+        
+        self.company = get_object_or_404(Company, id=company_id)
+        self.userStaff = get_object_or_404(User, id=user_id)
+        self.branch = get_object_or_404(Branch, id=branch_id, company=self.company)
+        self.staff = get_object_or_404(Staff, user=self.userStaff, company=self.company)
+        self.task = get_object_or_404(Task, company=self.company, branch=self.branch, id=task_id)
+
+        self.max_points_data = self.staff.get_max_reward_points_and_value()
+        self.max_monthly_points = self.max_points_data.get("max_points", 0)
+
+        #print(self.max_points_data)
+
+    def allocate_points(self, staff, task):
+        """
+        Allocate points to a staff member for a completed task, pending approval.
+
+        Args:
+            staff (Staff): The staff member object.
+            task (Task): The completed task object.
+
+        Returns:
+            dict: A dictionary with allocation details or error messages.
+        """
+        
+        if task.status == "rewardGranted":
+            return {"status": "failure", "reason": "Task reward has already been granted"}
+        
+        if task.status not in ["completed", "appeal"]:
+            return {"status": "failure", "reason": "Task is not marked as completed or approved appeal."}
+        
+        #print(self.task.status)
+        if self.task.status == "appeal" or self.task.status == "completed":
+            if not self.is_approved_by_hierarchy(staff, task):
+                return {"status": "failure", "reason": "Task is under appeal and has not been approved by the appropriate lead."}
+
+        if not staff.reward:
+            return {"status": "failure", "reason": "Staff is not eligible for rewards."}
+        
+        if not self.is_dataset_complete(task):
+            return {"status": "failure", "reason": "Incomplete dataset. Ensure all required entries are filled."}
+
+        if not self.has_video_evidence(task):
+            return {"status": "failure", "reason": "Video evidence is required for this task."}
+        
+        self.points_per_task = self.calculate_points(task)
+        #print(self.points_per_task['proportional_points'])
+        #print(self.points_per_task['ownerLoss_points'])
+        
+        self.total_monthly_points = self.get_monthly_allocated_points()
+        #print(f"Total Monthly Points : {total_monthly_points}")
+
+        self.log_points()
+        print(self.log_points())
+
+        self.reward_granted()
+
+        return {
+            "status": "pending",
+            "staff": self.staff.user,
+            "pending_points": self.points_per_task,
+            "total_points_this_month": self.total_monthly_points + self.points_per_task,
+        }
+
+    def is_approved_by_hierarchy(self, staff, task):
+        #print(self.task.approved_by)
+        approved_by = task.approved_by
+        if not approved_by:
+            return False
+
+        # Dynamically fetch StaffMember model based on task's appName
+        StaffMemberModel = apps.get_model(task.appName, 'StaffMember')
+        staffLead = StaffMemberModel.objects.filter(user=self.userStaff, branch=self.branch, company=self.company, status='active').first()
+        staffLeadsLead = StaffMemberModel.objects.filter(user=staffLead.leader, branch=self.branch, company=self.company, status='active').first() 
+
+        # Check if the task is approved by the staff's lead or staff lead's lead
+        if task.approved_by == staffLead.leader or task.approved_by == staffLeadsLead.leader:
+            if staffLead.leader == self.request.user or staffLeadsLead.leader == self.request.user:
+                return True
+    
+        return False
+    
+
+    def approve_points(self, staff, points, task):
+        if task.status != "pending":
+            return {"status": "failure", "reason": "Task is not in a pending state for approval."}
+
+        tracker_entry = RewardsPointsTracker.objects.filter(user=staff.user, task=task, points_pending=points).first()
+        if not tracker_entry:
+            raise ValueError("No matching pending points entry found for approval.")
+
+        tracker_entry.points_pending -= points
+        tracker_entry.credit += points
+        tracker_entry.credit_date = now()
+        tracker_entry.save()
+
+        task.status = "completed"
+        task.approved_by = staff.user
+        task.approved_date = now()
+        task.save()
+
+        return {
+            "status": "success",
+            "approved_points": points,
+            "total_approved_points": tracker_entry.credit,
+        }
+
+    def has_video_evidence(self, task):
+        required_count = task.dataQuantity
+        completed_entries = task.completeDetails.count('[')
+        count = 0
+        result = False
+        for entry in task.completeDetails.split('['):
+            if count > required_count:
+                break
+            if 'appName' in entry and 'modelName' in entry and 'modelId' in entry:
+                app_name = entry.split('appName = ')[1].split(',')[0].strip()
+                model_name = entry.split('modelName = ')[1].split(',')[0].strip()
+                model_id = entry.split('modelId = ')[1].split(',')[0].strip()
+                activity = entry.split('activity = ')[1].split(',')[0].strip()
+                filled_out = entry.split('filledOut = ')[1].split(']')[0].strip()
+                #print(f"appName: {app_name}, modelName: {model_name}, modelId: {model_id}, activity: {activity}, filledOut: {filled_out}")
+            
+                MediaData = Media.objects.filter(company=self.company, branch=self.branch, model_name=model_name, app_name=app_name, model_id=model_id, status='active').first()
+                if MediaData and MediaData.file:
+                    #print(f"Media file found for {model_name} with ID {model_id}")
+                    result = True
+                    
+            count += 1
+
+        return result
+
+    def is_dataset_complete(self, task):
+        required_count = task.dataQuantity
+        completed_entries = task.completeDetails.count('[')
+        if completed_entries  >= required_count:
+            return True
+        return False
+
+    def calculate_points(self, task):
+        print("")
+        print("**** Calculate Points ***************************************")
+        print("")
+        activityData = ActivityOwner.objects.filter(activity=task.activity, branch=self.branch, company=self.company, status='active', appName=task.appName).first()
+        totalBranchActivityData = ActivityOwner.objects.filter(branch=self.branch, company=self.company, status='active', appName=task.appName)
+        totalBranchActivity = sum(activity.importance_scale * activity.min_estimated_count for activity in totalBranchActivityData)
+        #print(self.max_points_data['max_points'])
+        
+        if totalBranchActivity == 0:
+            return 0
+        proportional_points = (self.max_points_data['max_points'] / totalBranchActivity) * (activityData.importance_scale)
+        print(f"Starting Proportional Points : {proportional_points}")
+        ownerLoss_points = 0
+        days_late = (self.task.completed_date - self.task.due_date).days
+        #print(f"days_late : {days_late}")
+
+        
+        #print(f"self.task.assistant : {self.task.assistant}") 
+        #print(f"self.task.completed_by : {self.task.completed_by}")
+
+        
+        if self.task.assigned_to == self.task.completed_by:
+            if self.task.completed_date and self.task.due_date:
+                grace_period = 1
+                penalty_days = days_late - grace_period
+                print(f"penalty_days : {penalty_days}")
+                penalty = min((proportional_points * 10/100) * penalty_days, (proportional_points * 50/100))
+                print(f"Penalty Point to be deducted from owner  : {penalty}")
+                ownerLoss_points += penalty
+                proportional_points -= penalty
+                print(f"Owner Proportional Points: {proportional_points}, ownerLoss_points: {ownerLoss_points}")
+                return {'proportional_points': proportional_points, 'ownerLoss_points':ownerLoss_points}
+                
+            
+        if self.task.completed_by == self.task.assistant:
+            ownerLoss_points += proportional_points+(proportional_points * 10/100)
+            grace_period = 3
+            penalty_days = days_late - grace_period
+            print(f"penalty_days : {penalty_days}")
+            
+            if penalty_days <= 0:
+                proportional_points += (proportional_points * 10/100)
+                print(f"Assitant Proportional Points: {proportional_points}, ownerLoss_points: {ownerLoss_points}")
+                return {'proportional_points': proportional_points, 'ownerLoss_points':ownerLoss_points}
+            
+            if penalty_days >= 1:
+                penalty = min((proportional_points * 10/100) * penalty_days, (proportional_points * 50/100))
+                proportional_points -= penalty
+                print(f"proportional_points: {proportional_points}, ownerLoss_points: {ownerLoss_points}")
+                return {'proportional_points': proportional_points, 'ownerLoss_points':ownerLoss_points}
+        
+        StaffMemberModel = apps.get_model(self.task.appName, 'StaffMember')
+        staffMember = StaffMemberModel.objects.filter(
+            user=self.task.completed_by, 
+            company=self.company, 
+            branch=self.branch, 
+            status='active'
+        ).exclude(user__in=[self.task.assigned_to, self.task.assistant]).first()
+        if staffMember:
+            proportional_points += (proportional_points * 50/100)
+            ownerLoss_points += proportional_points
+            print(f"Start proportional_points: {proportional_points}, Start ownerLoss_points: {ownerLoss_points}")
+            if self.task.completed_date and self.task.due_date:
+                grace_period = 4
+                penalty_days = days_late - grace_period
+                print(f"penalty_days : {penalty_days}")
+                if penalty_days >= 1:
+                    penalty = min((proportional_points * 10/100) * penalty_days, (proportional_points * 70/100))
+                    proportional_points -= penalty
+                    print(f"proportional_points: {proportional_points}, ownerLoss_points: {ownerLoss_points}")
+                return {'proportional_points': proportional_points, 'ownerLoss_points':ownerLoss_points}
+                
+        
+        #print(proportional_points, ownerLoss_points)
+        ownerLoss_points += proportional_points
+        proportional_points = 0
+        return {'proportional_points': proportional_points, 'ownerLoss_points':ownerLoss_points}
+    
+    def get_monthly_allocated_points(self):
+            print("************ Monthly Allocated Points ****************")
+            current_month = now().month
+            current_year = now().year
+
+            monthly_points = RewardsPointsTracker.objects.filter(
+                user=self.task.assigned_to,
+                credit_date__month=current_month,
+                credit_date__year=current_year
+            ).exclude(transaction_type='pending').aggregate(
+                credit_total=Sum('credit'),
+                blocked_total=Sum('blocked')
+            )
+
+            monthCreditReceived = monthly_points['credit_total'] or 0
+            print(f"Month Credit Received : {monthCreditReceived}")
+            monthBlockedPoints = monthly_points['blocked_total'] or 0
+            print(f"Month Blocked Credit : {monthBlockedPoints}")
+
+            total_monthly_points = monthCreditReceived + monthBlockedPoints
+
+            
+            return total_monthly_points
+
+    def log_points(self):
+
+        print("************ Log Points ****************")
+
+        if self.task.status == "rewardGranted":
+            return {"status": "failure", "reason": "Task reward has been granted already."}
+
+        points_to_allocate = self.points_per_task['proportional_points']
+        #print(f"Points to Allocate : {points_to_allocate}")
+        points_to_blocked = self.points_per_task['ownerLoss_points']
+        #print(f"Points to points_to_blocked : {points_to_blocked}")
+
+
+        #print(f"self.task.assigned_to : {self.task.completed_by}")
+
+        if self.task.assigned_to == self.task.completed_by:
+
+            if self.total_monthly_points + self.points_per_task['proportional_points']  > self.max_monthly_points:
+                return {"status": "failure", "reason": "No points to allocate."}
+
+            RewardsPointsTracker.objects.create(
+                user=self.task.completed_by,
+                company=self.task.company,
+                branch=self.task.branch,
+                task=self.task,
+                credit= points_to_allocate,
+                transaction_type='merit'
+            )
+
+            RewardsPointsTracker.objects.create(
+                user=self.task.assigned_to,
+                company=self.task.company,
+                branch=self.task.branch,
+                task=self.task,
+                blocked=points_to_blocked,
+                transaction_type='merit'
+            )
+        
+        else:
+            RewardsPointsTracker.objects.create(
+                user=self.task.completed_by,
+                company=self.task.company,
+                branch=self.task.branch,
+                task=self.task,
+                credit= points_to_allocate,
+                transaction_type='merit'
+            )
+
+            RewardsPointsTracker.objects.create(
+                user=self.task.assigned_to,
+                company=self.task.company,
+                branch=self.task.branch,
+                task=self.task,
+                blocked=points_to_blocked,
+                transaction_type='merit'
+            )
+
+    def reward_granted(self):
+        print("************ Reward Granted ****************")
+        self.task.status = "rewardGranted"
+        self.task.save()
+        return {"status": "success", "reason": "Reward points granted successfully."}
+    
+
+def extract_common_data(request, fields):
+    """
+    Extracts and validates common data from the request based on the provided fields.
+    """
+    data = {field: request.data.get(field) for field in fields}
+
+    # Ensure all required fields are provided
+    missing_fields = [field for field, value in data.items() if not value]
+    if missing_fields:
+        logging.warning(f"Missing fields: {missing_fields}")
+        return Response(
+            {"error": f"Missing required fields: {', '.join(missing_fields)}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return data
+
+
+
+def notify_manager(activity, message):
+    """
+    Send a notification to the manager of the activity owner.
+    """
+    manager = activity.manager
+    if manager:
+        # Implement your notification logic here, e.g., email or push notification
+        send_mail(
+            subject=f"Notification for Activity {activity.name}",
+            message=message,
+            from_email='your_email@example.com',
+            recipient_list=[manager.email],
+        )

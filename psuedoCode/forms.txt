@@ -1,0 +1,38 @@
+COMPONENT: Laying_End
+  IMPORT: React, Redux hooks, dispatch, selectors, actions
+
+  INTERFACE: Define props for task and model details
+
+  FUNCTION: StageEnd (props)
+    STATE: Initialize StageEnd  with default structure
+    HOOK: useEffect
+      DISPATCH fetchNetUseDetails with relevant params
+
+    HANDLER: handleAddLayEnd
+      Add new lay end to state array
+
+    HANDLER: handleRemoveLayEnd
+      Remove specific lay end by index
+
+    HANDLER: handleAddMedia
+      Add new media to specific lay end
+
+    HANDLER: handleRemoveMedia
+      Remove specific media by index
+
+    HANDLER: handleSubmit
+      Prevent default form submission
+      Create formData object with task and lay end details
+      DISPATCH createLayStart with formData
+
+    RETURN: Render form
+      - Display task details (title, activity, batch)
+      - Map layEnds to render:
+        - Net Number (read-only)
+        - End Date (input)
+        - Harvest Weight (input)
+        - Media fields (title, file, comments)
+      - Add buttons to:
+        - Add/Remove lay ends
+        - Add/Remove media
+        - Submit form

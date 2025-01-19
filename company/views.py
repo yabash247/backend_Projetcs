@@ -1,18 +1,21 @@
-from rest_framework import generics, permissions, serializers  
+from rest_framework import generics, permissions, serializers
 from .permissions import IsBranchPermission
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
-from .models import Company, Authority, Staff, StaffLevels, Branch, Media
-from .serializers import BranchSerializer
-from .serializers import CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer, MediaSerializer
+from .models import Company, Authority, Staff, StaffLevels, Branch, Media, Task
+from .serializers import ActivityOwnerSerializer, CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer, MediaSerializer, TaskSerializer, BranchSerializer
 from django.shortcuts import get_object_or_404
-from rest_framework.decorators import action
-from company.utils import check_user_exists
-from django.apps import apps
+from company.utils import check_user_exists, get_associated_media, PointsRewardSystem
 import logging
+from django.apps import apps
+from django.utils.timezone import now
+from datetime import timedelta
+from .models import ActivityOwner
+from django.core.mail import send_mail
+from django.db.models import Q
 
 
 # Configure logging
@@ -161,7 +164,6 @@ class AddAuthorityView(generics.CreateAPIView):
 
         serializer.save(requested_by=self.request.user)
 
-
 class EditAuthorityView(RetrieveUpdateAPIView):
     """
     View to retrieve and update an authority record.
@@ -222,47 +224,102 @@ class DeleteAuthorityView(generics.DestroyAPIView):
         instance.delete()
 
 
-# View a specific company or list all companies
-class ViewCompanyView(generics.ListAPIView, generics.RetrieveAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CompanySerializer
+class apiTest(APIView):
+    permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
+    def post(self, request, *args, **kwargs):
         """
-        Define which companies the user can view.
-        - Regular users can view only the companies they created or are linked to.
-        - Super admins can view all companies.
+        Allocate points for a completed task.
         """
-        company_id = self.request.headers.get('Company-ID')
+        try:
+            # Initialize PointsRewardSystem with the request data
+            reward_system = PointsRewardSystem(request)
+
+            # Allocate points
+            allocation_result = reward_system.allocate_points(reward_system.staff, reward_system.task)
+
+            return Response(allocation_result, status=200 if allocation_result["status"] == "pending" else 400)
+        except PermissionDenied as e:
+            return Response({"error": str(e)}, status=403)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
+        except Exception as e:
+            return Response({"error": "An unexpected error occurred."}, status=500)
+
+
+# *******  Views for Company Model ***********
+
+class ViewCompanyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Fetch `company` parameter from request query params
+        company_id = request.query_params.get('company')
+
         if company_id:
+            # Validate the provided company ID
             try:
                 company = Company.objects.get(id=company_id)
-                if self.request.user.is_superuser or company.creator == self.request.user:
-                    return Company.objects.filter(id=company_id)
-                else:
-                    raise PermissionDenied("You do not have the required permissions to view this company.")
             except Company.DoesNotExist:
-                raise PermissionDenied("Company not found.")
-        
-        if self.request.user.is_superuser:
-            return Company.objects.all()
-        return Company.objects.filter(creator=self.request.user)
-    
-    def get_object(self):
-        """
-        Override get_object to include a permission check using `has_permission`.
-        """
-        company = super().get_object()  # Get the company object based on the provided ID
-        model_name = 'company'  # Replace with the relevant model name
-        action = 'view'  # Replace with the desired action (e.g., view)
+                raise NotFound("The provided Company ID is not valid or does not exist.")
 
-        # Check if the user has permission to view the company
-        if not has_permission(self.request.user, company, model_name, action):
-            raise PermissionDenied("You do not have the required permissions to view this company.")
+            # Check permissions using the `has_permission` utility
+            if not has_permission(
+                user=request.user,
+                company=company,
+                app_name="company",
+                model_name="Company",
+                action="view"
+            ):
+                raise PermissionDenied("You do not have the required permissions to view this company.")
 
-        return company
-    
-    
+            # Fetch associated media for the company
+            media_queryset = get_associated_media(
+                data_id=company.id,
+                model_name="Company",
+                app_name="company",
+                company=company
+            )
+            media_serializer = MediaSerializer(media_queryset, many=True)
+
+            # Serialize company data
+            company_serializer = CompanySerializer(company)
+
+            return Response({
+                "company": company_serializer.data,
+                "media": media_serializer.data
+            })
+
+        else:
+            # Handle multiple companies retrieval
+            if request.user.is_superuser:
+                queryset = Company.objects.all()
+            else:
+                queryset = Company.objects.filter(creator=request.user)
+
+            companies_data = []
+
+            for company in queryset:
+                # Fetch associated media for each company
+                media_queryset = get_associated_media(
+                    data_id=company.id,
+                    model_name="Company",
+                    app_name="company",
+                    company=company
+                )
+                media_serializer = MediaSerializer(media_queryset, many=True)
+
+                # Serialize company data
+                company_serializer = CompanySerializer(company)
+
+                # Append data to the list
+                companies_data.append({
+                    "company": company_serializer.data,
+                    "media": media_serializer.data
+                })
+
+            return Response({"companies": companies_data})
+
 class AddCompanyView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = CompanySerializer
@@ -296,6 +353,7 @@ class DeleteCompanyView(generics.DestroyAPIView):
         return Company.objects.filter(creator=self.request.user)
 
 
+
 # *******  Views for Staff Model ***********
 
 class ViewStaffView(generics.ListAPIView):
@@ -318,8 +376,14 @@ class ViewStaffView(generics.ListAPIView):
         # Check if the user has permission to view staff for this company
         model_name = 'staff'
         action = 'view'
-        if not has_permission(self.request.user, company, model_name, action):
-            raise PermissionDenied("You do not have permission to view staff for this company.")
+
+        if not has_permission(
+                user=self.request.user,
+                company=company,
+                app_name="company",
+                model_name="Staff",
+                action="view"
+            ):raise PermissionDenied("You do not have permission to view staff for this company.")
 
         # If a staff ID is provided, filter to a specific staff member
         if staff_id:
@@ -327,6 +391,10 @@ class ViewStaffView(generics.ListAPIView):
                 staff = Staff.objects.get(id=staff_id, company=company)
             except Staff.DoesNotExist:
                 raise PermissionDenied("The specified staff member does not exist in this company.")
+            rewards_data = staff.get_max_reward_points_and_value()
+            #print(rewards_data["max_points"]) 
+            #print(rewards_data["currency_symbol"])
+            #print(rewards_data["value_in_currency"])
             return Staff.objects.filter(id=staff.id)
 
         # Otherwise, return all staff members for the specified company
@@ -407,7 +475,6 @@ class DeleteStaffView(generics.DestroyAPIView):
 
 
 # *******  Views for Staff Level Model ***********
-
 class AddStaffLevelView(generics.CreateAPIView):
     serializer_class = StaffLevelsSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -434,7 +501,6 @@ class AddStaffLevelView(generics.CreateAPIView):
         # Automatically set the approver field to the authenticated user
         logger.debug(f"Saving serializer with data: {serializer.validated_data}")
         serializer.save(approver=self.request.user)
-
 
 class EditStaffLevelView(generics.RetrieveUpdateAPIView):
     serializer_class = StaffLevelsSerializer
@@ -478,7 +544,6 @@ class EditStaffLevelView(generics.RetrieveUpdateAPIView):
         # Perform the update
         serializer.save()
 
-
 class DeleteStaffLevelView(generics.DestroyAPIView):
     serializer_class = StaffLevelsSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -496,9 +561,7 @@ class DeleteStaffLevelView(generics.DestroyAPIView):
             raise PermissionDenied("You do not have permission to delete this staff level record.")
 
         instance.delete()
-
-
-        
+       
 class StaffLevelView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -540,8 +603,6 @@ class BranchListCreateView(generics.ListCreateAPIView):
         if company_id:
             return Branch.objects.filter(company_id=company_id)
         return super().get_queryset()
-
-
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -604,8 +665,6 @@ class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.delete()
 
 
-from django.db.models import Q
-
 class MediaListCreateView(generics.ListCreateAPIView):
     """
     View to list all media files or upload a new media file.
@@ -665,7 +724,6 @@ class MediaListCreateView(generics.ListCreateAPIView):
         except Exception as e:
             raise PermissionDenied(f"An error occurred while saving the media: {str(e)}")
 
-
 class MediaDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     View to retrieve, update, or delete a media file.
@@ -701,3 +759,281 @@ class MediaDetailView(generics.RetrieveUpdateDestroyAPIView):
             raise PermissionDenied("You do not have permission to delete this media file.")
 
         instance.delete()
+
+
+class TaskListCreateView(generics.ListCreateAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Fetch tasks based on user, company, branch, status query parameters,
+        and annotate late task information if the user is an assistant.
+        Include tasks late by 2 days or more if the user is a branch staff.
+        """
+        user = self.request.user # Get the authenticated user
+        queryset = Task.objects.all() # Get all tasks
+
+        # Handle query parameters
+        all_param = self.request.query_params.get("all", "false").lower() == "true"
+        owner_param = self.request.query_params.get("owner", "false").lower() == "true"
+        assistant_param = self.request.query_params.get("assistant", "false").lower() == "true"
+        manager_param = self.request.query_params.get("manager", "false").lower() == "true"
+        company_id = self.request.query_params.get("company")
+        branch_id = self.request.query_params.get("branch")
+        status_param = self.request.query_params.get("status")
+
+        if manager_param:
+            # Initialize an empty query filter
+            member_query_filter = Q()
+
+            
+
+            # Filter tasks where the user is a manager
+            for task in queryset:
+
+                app_name = task.appName
+                # Get the StaffMember model (assumes app_name is constant or known)
+                StaffMemberModel = apps.get_model(app_name, 'StaffMember')  # Replace 'app_name' with actual app name
+
+
+                if StaffMemberModel.objects.filter(user=task.assigned_to, leader=user).exists():
+                    #print(f"User is a manager of {task.assigned_to}")
+                    member_query_filter |= Q(assigned_to=task.assigned_to)
+
+            # Apply the accumulated filter to the queryset
+            member_querySet = queryset.filter(member_query_filter)
+
+            return member_querySet
+        
+    
+        if all_param:
+            # also check if user is a manager of the farm***.
+
+            if branch_id and not company_id:
+                raise ValidationError("'company' is required when 'branch' is provided.")
+
+            if company_id:
+                try:
+                    company = Company.objects.get(id=company_id)
+                except Company.DoesNotExist:
+                    raise ValidationError(f"Company with ID '{company_id}' does not exist.")
+
+                if not has_permission(user, company, app_name="bsf", model_name="Task", action="view"):
+                    raise PermissionDenied("You do not have permission to view tasks for this company.")
+
+                queryset = queryset.filter(company=company)
+
+                if branch_id:
+                    try:
+                        branch = Branch.objects.get(branch_id=branch_id)
+                    except Branch.DoesNotExist:
+                        raise ValidationError(f"Branch with ID '{branch_id}' does not exist.")
+
+                    if branch.company != company:
+                        raise ValidationError(f"Branch '{branch.name}' does not belong to Company '{company.name}'.")
+
+                    queryset = queryset.filter(branch=branch)
+       
+
+        elif owner_param:
+            # Get all tasks where the user is the owner
+            queryset = queryset.filter(owner=user)
+
+        elif assistant_param:
+            # Get all tasks where the user is the assistant
+            queryset = queryset.filter(assistant=user)
+            
+        else:
+            # Get all tasks assigned to the user
+            queryset = queryset.filter(assigned_to=user)
+
+            # Get all late tasks where the user is an assistant
+            late_tasks = Task.objects.filter(
+                due_date__lt=now() - timedelta(days=1),
+                status="active",
+                assistant=user
+            )
+            queryset = queryset | late_tasks  # Combine the two querysets
+
+        
+        # Include extra tasks delayed by 2 or more days for branch staff
+        delayed_tasks = Task.objects.filter(
+            due_date__lt=now() - timedelta(days=2),
+            status="active"
+        )
+
+        for task in delayed_tasks:
+            appName = task.appName
+            # Check if the user is an active staff member of the branch
+            StaffMemberModel = apps.get_model(appName, 'StaffMember')
+            if StaffMemberModel.objects.filter(user=user, status="active", company=task.company).exists():
+                queryset = queryset | delayed_tasks 
+        
+        # Filter by task completion and ownership
+        completed_tasks = Task.objects.exclude(status="active")
+        user_completed_tasks = completed_tasks.filter(completed_by=user)
+        other_completed_tasks = completed_tasks.exclude(completed_by=user)
+        queryset = queryset | user_completed_tasks
+        queryset = queryset.exclude(pk__in=other_completed_tasks.values_list('pk', flat=True))
+
+        # Filter by status
+        if status_param:
+            valid_status_choices = [choice[0] for choice in Task.STATUS_CHOICES]
+            if status_param not in valid_status_choices:
+                raise ValidationError({"status": f"Invalid status '{status_param}'. Valid options are: {', '.join(valid_status_choices)}."})
+            queryset = queryset.filter(status=status_param)
+
+        
+        if company_id:# If company is provided in param:
+                try:
+                    company = Company.objects.get(id=company_id)
+                except Company.DoesNotExist: # Check if company exist
+                    raise ValidationError(f"Company with ID '{company_id}' does not exist.")
+                if not has_permission(user, company, app_name="bsf", model_name="Task", action="view"):
+                    raise PermissionDenied("You do not have permission to view tasks for this company.")
+                if branch_id:
+                    try: 
+                        branch = Branch.objects.get(branch_id=branch_id)
+                    except Branch.DoesNotExist:
+                            raise ValidationError(f"Branch with ID '{branch_id}' does not exist.")
+                    if branch :
+                        queryset = queryset.filter(branch=branch)
+                queryset = queryset.filter(company=company)
+                    
+                
+                
+                
+        return queryset
+
+    def perform_create(self, serializer):
+        #**** Create Custom Task 
+        serializer.save()
+
+class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Task.objects.all()
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+
+
+
+# create custom task 
+
+class CustomTaskView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        """
+        Create a custom task for the authenticated user.
+        """
+        data = request.data
+
+        
+        # Validate the request data
+        serializer = TaskSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+        
+        # Ensure the user has permission to create a custom task
+        company = data.get("company")
+        app_name = data.get("appName")
+        model_name = data.get("modelName")
+        action = 'add'  # The action for this endpoint is 'add'
+
+        if not has_permission(request.user, company, app_name, model_name, action):
+            raise PermissionDenied("You do not have permission to create a custom task.")
+
+        # Create the custom task
+        task = Task.objects.create(
+            title=data.get("title"),
+            due_date=data.get("due_date"),
+            assigned_to=data.get("owner"),
+            status="active",
+            company=data.get("company"),
+            branch=data.get("branch"),
+            appName=data.get("appName"),
+            modelName=data.get("modelName"),
+            description=data.get("description", ""),
+            assistant=data.get("assistant", None),
+            activity = data.get("activity", None),
+        )
+
+        # Serialize and return the task data
+        serializer = TaskSerializer(task)
+        return Response(serializer.data, status=201)
+
+class ActivityOwnerListCreateView(generics.ListCreateAPIView):
+    queryset = ActivityOwner.objects.all().order_by('-created_date')
+    serializer_class = ActivityOwnerSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class ActivityOwnerDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ActivityOwner.objects.all()
+    serializer_class = ActivityOwnerSerializer
+    permission_classes = [IsAuthenticated]
+
+class Recurance(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("You do not have permission to perform this action.")
+
+        nowTime = now()
+        activities = ActivityOwner.objects.filter(status="active", reoccurring=True)
+        # print(f"Checking for activities at {now}")
+
+        for activity in activities:
+            # check if activity is on-going (activity.start_date <= now <= activity.start_date + activity.interval_days)
+            if activity.reoccurring_Start and activity.reoccurring_Start <= nowTime.date() and nowTime.date() <= (activity.reoccurring_Start + timedelta(days=activity.interval_days)):
+                print(f"Activity {activity.activity} is on-going.")
+                continue
+            # Check if the activity is due for reoccurring task creation
+            elif activity.reoccurring_End is None or activity.reoccurring_End > nowTime:
+                print(f"Creating task for activity {activity.activity} - {activity.owner}")
+                # Generate new task
+
+                # Create the next task in the workflow
+                Task.objects.create(
+                    company=activity.company,
+                    branch=activity.branch,
+                    title=f"{activity.activity} - {activity.owner}",
+                    due_date=(activity.reoccurring_End or nowTime) + timedelta(days=activity.interval_days),
+                    assigned_to=activity.owner if activity else None,
+                    assistant=activity.assistant if activity else None,
+                    appName=activity.appName,
+                    modelName=activity.modelName,
+                    activity=activity.activity,
+                    status="active",
+                )
+                print(f"Created task for activity {activity.activity} - {activity.owner}")
+
+                #update reoccurring_Start time 
+                activity.reoccurring_Start = nowTime
+                activity.save()
+
+            # need to send an email to activity owner manager inform that activity is due for reoccurring task creation but still has one that isn't completed yet
+            else:
+                # Send an email to the activity owner's manager
+
+                # Get the manager's email
+                manager_email = activity.owner.manager.email if activity.owner.manager else None
+
+                if manager_email:
+                    send_mail(
+                        subject="Reoccurring Task-{activity.activity}, Creation Due",
+                        message=f"Dear Manager,\n\nThe activity '{activity.activity}' assigned to {activity.owner} is due for reoccurring task creation but still has one that isn't completed yet.\n\nPlease take the necessary actions.\n\nBest regards,\nYour Company",
+                        from_email="no-reply@yourcompany.com",
+                        recipient_list=[manager_email],
+                        fail_silently=False,
+                    )
+
+                print(f"Activity {activity.activity} is due for reoccurring task creation but still has one that isn't completed yet.")
+                continue
+
+        return Response({"message": "Reoccurring tasks created successfully."})
+    
+

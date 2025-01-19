@@ -1,5 +1,90 @@
 
 
+
+            Requirements: 
+            1. Sidebar Nav  left hand corner like that of youtube.com. same fuctionality. 
+            2. Task Components 
+                i. in carousel formart(5carousel) with tabs(past due(icon number), current) at the top show most critical task: due now and in decending order, 
+                second i need when you log in to see the most current task to do 
+            third i want the website to be usable on mobile 
+            fourth make it that when you log in you see how many points you have on the top right corner 
+            fifth make it that for ever task it shows what you would cost the company if you don"t do it
+            sixth make it easy to submit you task '
+            seventh let the user see all the taske he has completed in a box so if he miss clicks and need to redo it he can
+            eigthth make the website look more alive and more like a website if you need more help with what it should look like ask and i will tell a website
+            nineth for task list there should be at search bar 
+            tenth we want to see a cariso that displaces critical/ timesensitive tasks
+            eleventh like a table list that shows completed task, uncompleted task, failed task to complete and past task
+            twelveth on the bottom right corner include a button that lets the user to make task and for the manager to be able to give the task to a worker/user
+            Last on the to right corner next to the points show a button where the user can convert the points in to money of any currency and let the manager accept it
+
+
+
+
+                        
+
+                
+
+        
+
+                       
+
+
+
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide complete updated files, preserving all existing logic and code that doesn't need modification. 
+                        The changes should focus solely on fixing the reported requirements while retaining the original implementation.
+                3.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+                3. Ask if you need to review additional files that we might have to help you in updating the code
+
+
+
+            Existing data:
+
+
+
+
+Requirement : 
+    create a reusable component where manager can review task completed by its staff and approve, make comments or reject. 
+    
+    each task display should have a review button
+    task details when clicked shall be a modal that contains and dispaly task data as well as 
+        task.completeDetails desphered 
+
+    All task needing to be reviewed by manager shall be requested as such:
+     use getTasks = createAsyncThunk where ?manager=true 
+
+        sample data 
+        {
+                "id": 7,
+                "farm": "8",
+                "appName": "bsf",
+                "modelName": "NetInUse",
+                "dataQuantity": 1,
+                "activity": "Laying_Start",
+                "title": "Need to add Net Use Start Info for Batch AA110",
+                "description": "Task Details:\r\n        - App Name: 'Bsf'\r\n        - Model Name: 'NetInUse'\r\n        - Company: YABASH INTEGRATED FARM\r\n        - Batch: AA110\r\n        - Farm: PH BSF FARM - RUKPURKO\r\n        - Lay Start: ?\r\n        - Stats: Ongoing\r\n        - Media: True for points allocation",
+                "due_date": "2024-12-22T02:14:18Z",
+                "status": "rewardGranted",
+                "completed_date": "2025-01-04T05:38:00Z",
+                "completeDetails": "[ - appName = bsf,  - modelName = NetInUse, - modelId = 140,  - activity = Laying_Start, - filledOut = lay_start] [ - appName = bsf,  - modelName = NetInUse, - modelId = 141,  - activity = Laying_Start, - filledOut = lay_start]",
+                "approved_date": "2025-01-03T05:38:09Z",
+                "created_at": "2024-12-24T02:14:18.372291Z",
+                "appealReason": "could not complete task videos because of no network",
+                "company": 5,
+                "branch": 1,
+                "assigned_to": 15,
+                "assistant": 17,
+                "completed_by": 15,
+                "approved_by": 16
+            }
+
+
+
+    First shall be a display of all task needing managers approval. each task shalll have a review button that on click opens up a modal with 
         
         Get all ponds.
             Check remove from list any pond that has an ongoing status with pondUseStats
@@ -148,10 +233,6 @@ Create StaffMember List component
 
 Exisiting data:
         
-
-
-
-
 
 Enhance Authority Model, Serializer and Views :
   1. Notify logged in user of all model that has specified company data in but not included in authority model.

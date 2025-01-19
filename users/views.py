@@ -11,6 +11,7 @@ from django.core.mail import send_mail
 import random
 from rest_framework.parsers import JSONParser
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from company.task import check_and_generate_tasks
 from django_otp import devices_for_user
 
 class RegisterView(generics.CreateAPIView):
@@ -83,16 +84,22 @@ class UserDetailView(generics.RetrieveAPIView):
     serializer_class = UserSerializer
     lookup_field = 'id'
 
+
 class UserProfileView(generics.RetrieveUpdateAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
+        """
+        Override to return the authenticated user's profile.
+        """
         return self.request.user.profile
+
      
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

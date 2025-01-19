@@ -1,7 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import AddCompanyView, EditCompanyView, DeleteCompanyView, ViewCompanyView, AuthorityView, AddAuthorityView, EditAuthorityView, DeleteAuthorityView, ViewStaffView, AddStaffView, EditStaffView, DeleteStaffView
-from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView, BranchListCreateView, BranchDetailView, MediaListCreateView, MediaDetailView
+from .views import AddStaffLevelView, EditStaffLevelView, DeleteStaffLevelView, StaffLevelView, BranchListCreateView, BranchDetailView, MediaListCreateView, MediaDetailView, apiTest
+
 
 router = DefaultRouter()
 #router.register(r'authorities', AuthorityViewSet)
@@ -10,10 +11,10 @@ urlpatterns = [
 
     #path('api/', include(router.urls)),
 
+    path('test/', apiTest.as_view(), name='api_Test'),
     path('add/', AddCompanyView.as_view(), name='add-company'),
     path('<int:pk>/edit/', EditCompanyView.as_view(), name='edit-company'),
     path('<int:pk>/delete/', DeleteCompanyView.as_view(), name='delete-company'),
-    path('<int:pk>/', ViewCompanyView.as_view(), name='view-company'),  # View a single company
     path('', ViewCompanyView.as_view(), name='list-companies'),  
 
     path('authorities/<int:company_id>/', AuthorityView.as_view(), name='authority_view'),
@@ -39,3 +40,20 @@ urlpatterns = [
     path("media/<int:pk>/", MediaDetailView.as_view(), name="media-detail"),
 
 ]
+
+from .views import TaskListCreateView, TaskDetailView, Recurance, CustomTaskView
+urlpatterns += [
+    path('tasks/', TaskListCreateView.as_view(), name='task-list-create'),
+    path('tasks/<int:pk>/', TaskDetailView.as_view(), name='task-detail'),
+
+    path('task/recurrence/', Recurance.as_view(), name='recurrence'),
+    path('custom-task/', CustomTaskView.as_view(), name='custom-task'),
+]
+
+
+from .views import ActivityOwnerListCreateView, ActivityOwnerDetailView
+urlpatterns += [
+    path('activity-owners/', ActivityOwnerListCreateView.as_view(), name='activity-owner-list-create'),
+    path('activity-owners/<int:pk>/', ActivityOwnerDetailView.as_view(), name='activity-owner-detail'),
+]
+

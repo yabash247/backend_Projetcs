@@ -1,423 +1,305 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
-import {
-  Box,
-  Drawer,
-  Divider,
-  Typography,
-  Button,
-  Grid,
-  Radio,
-  RadioGroup,
-  FormControl,
-  FormControlLabel,
-  CircularProgress,
-  Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tooltip,
-  TableSortLabel,
-} from "@mui/material";
-import {
-  Edit as EditIcon,
-  Videocam as VideocamIcon,
-  VideocamOff as VideocamOffIcon,
-  PauseCircle as PauseCircleIcon,
-  AddCircleOutline as AddCircleOutlineIcon,
-} from "@mui/icons-material";
+1. Make the modal scrollable in the y axis.
+                2. Make modal appropriately sized while retaining the original structure
 
-import { useDispatch, useSelector } from "react-redux";
-import { AppDispatch, RootState } from "../../store";
-import {
-  fetchNetUseStats,
-  selectNetUseStats,
-  selectNetUseStatsLoading,
-  selectNetUseStatsError,
-} from "../../features/bsf/netUseStatsSlice";
-import {
-  fetchBsfPondsUseStats,
-  selectBsfPondsUseStats,
-  selectBsfPondsUseStatsStatus,
-  selectBsfPondsUseStatsError,
-} from "../../features/bsf/bsfPondsSlice";
-import Carousel from "react-material-ui-carousel";
-import { backendURL } from "../../utils/Constant";
-import NetUseCreateForm from "./NetUseStatsForm";
-import EditNetUseStats from "./EditNetUseStats";
+                
+  TaskSlice.ts
+    getMyTask thunk : get all task associated with user using : {{Backend_Localhost}}/api/company/tasks/
 
-interface BatchDetailsModalProps {
-  open: boolean;
-  batch: any | null;
-  onClose: () => void;
-  companyId: number;
-  farmId: number;
-}
+    bsf>NetInUse>Laying_Start.ts : 
+        netUseStatsSlice
 
-interface MediaItem {
-  id: number;
-  file: string;
-  title: string;
-  fileType?: string;
-}
 
-const PondUseStatsDisplay: React.FC<{ harvest_stage: string; companyId: number; farmId: number; batchId: number }> = ({
-  harvest_stage,
-  companyId,
-  farmId,
-  batchId,
-}) => {
-  const dispatch = useDispatch<AppDispatch>();
-  const pondUseStats = useSelector(selectBsfPondsUseStats);
-  const status = useSelector(selectBsfPondsUseStatsStatus);
-  const error = useSelector(selectBsfPondsUseStatsError);
+  Pseudocode for ViewCompanyView
 
-  useEffect(() => {
-    dispatch(fetchBsfPondsUseStats({ company: companyId, farm: farmId, batch: batchId, harvest_stage }));
-  }, [dispatch, companyId, farmId, batchId, harvest_stage]);
+      DEFINE class ViewCompanyView(APIView):
+          SET permission_classes to [IsAuthenticated]
 
-  if (status === "loading") return <CircularProgress />;
-  if (status === "failed") return <Alert severity="error">{error}</Alert>;
+          DEFINE GET method(request, *args, **kwargs):
+              FETCH `Company-ID` from request headers
+              
+              IF `Company-ID` exists:
+                  // Handle single company retrieval
+                  FETCH company using `get_object_or_404` with `Company-ID`
+                  
+                  CHECK if user has_permission using utils function `has_permission`:
+                      IF NOT, raise PermissionDenied
+                  
+                  FETCH associated media for the company using `get_associated_media`
+                  
+                  SERIALIZE company data using `CompanySerializer`
+                  SERIALIZE media data using `MediaSerializer`
 
-  return (
-    <TableContainer>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Pond Name</TableCell>
-            <TableCell>Start Date</TableCell>
-            <TableCell>Harvest Stage</TableCell>
-            <TableCell>Status</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {pondUseStats.map((item) => (
-            <TableRow key={item.pondusestats.id}>
-              <TableCell>{item.pondusestats.pond_name}</TableCell>
-              <TableCell>{item.pondusestats.start_date}</TableCell>
-              <TableCell>{item.pondusestats.harvest_stage}</TableCell>
-              <TableCell>{item.pondusestats.status}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-};
+                  RETURN Response with:
+                      - Serialized company data
+                      - Serialized media data
+              
+              ELSE:
+                  // Handle multiple companies retrieval
+                  IF user is superuser:
+                      FETCH all companies
+                  ELSE:
+                      FETCH companies where the user is the creator
+                  
+                  INITIALIZE an empty list `companies_data`
+                  
+                  FOR EACH company in the fetched companies:
+                      FETCH associated media for the company using `get_associated_media`
+                      SERIALIZE company data using `CompanySerializer`
+                      SERIALIZE media data using `MediaSerializer`
+                      
+                      APPEND to `companies_data`:
+                          - Serialized company data
+                          - Serialized media data
+                  
+                  RETURN Response with:
+                      - `companies_data` list
 
-const BatchDetailsModal: React.FC<BatchDetailsModalProps> = ({
-  open,
-  batch,
-  onClose,
-  companyId,
-  farmId,
-}) => {
-  const dispatch = useDispatch<AppDispatch>();
+      ---
 
-  const netUseStats = useSelector(selectNetUseStats);
-  const loading = useSelector(selectNetUseStatsLoading);
-  const error = useSelector(selectNetUseStatsError);
+      ### Key Components in Pseudocode
 
-  const [selectedOption, setSelectedOption] = useState<string>("Laying");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [selectedNet, setSelectedNet] = useState<any | null>(null); // State for selected NetUseStats
-  const [isCarouselPaused, setIsCarouselPaused] = useState<boolean>(false);
-  const [showNetUseForm, setShowNetUseForm] = useState<boolean>(false); // State for Add button form
-  const [editNetId, setEditNetId] = useState<number | null>(null); // State for Edit Net ID
+      1. **Single Company Logic**:
+        - Check if `Company-ID` is provided.
+        - Fetch the company object and associated media.
+        - Serialize the data and return it.
 
-  useEffect(() => {
-    if (selectedOption === "Laying" && batch?.id) {
-      dispatch(fetchNetUseStats({ companyId, farmId, batchId: batch.id }));
-    }
-  }, [selectedOption, batch, companyId, farmId, dispatch]);
+      2. **Multiple Companies Logic**:
+        - If `Company-ID` is not provided, fetch all companies accessible to the user.
+        - Iterate over each company, fetch associated media, and serialize both.
 
-  const handleRadioChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setSelectedOption(event.target.value);
-    },
-    []
-  );
+      3. **Utility Function**:
+        - Use `get_associated_media` to fetch media associated with each company.
 
-  const handleSortClick = useCallback(() => {
-    setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-  }, []);
+      4. **Permissions**:
+        - Ensure only authorized users can view company details and associated media.
 
-  const handleRowClick = (net: any) => {
-    setSelectedNet({
-      ...net,
-      associated_media: (net.associated_media || []).map(detectMediaType), // Enrich media
-    });
-    setShowNetUseForm(false); // Reset form display when selecting a new net
-    setEditNetId(null); // Reset edit state when selecting a new net
-  };
+      5. **Response Structure**:
+        - Single company: Return company and its media.
+        - Multiple companies: Return a list of companies, each with its media.
 
-  const handleAddNewLayInfoClick = () => {
-    setShowNetUseForm(true);
-    setSelectedNet(null); // Reset selected net when showing the form
-    setEditNetId(null); // Reset edit state
-  };
 
-  const handleEditClick = (netId: number, status: string) => {
-    if (status !== "completed") {
-      setEditNetId(netId); // Set the Net ID for editing
-      setShowNetUseForm(false); // Reset form display
-      setSelectedNet(null); // Reset selected net
-    }
-  };
 
-  const detectMediaType = (media: MediaItem): MediaItem => {
-    if (media.fileType) return media;
+            
+            
+            {
+                "taskId": 7, //task.id
+                "appName": "bsf ", //task.appName
+                "modelName": "netUseStats", //task.modelName
+                "company" : 5,
+                "farm": 8,
+                "batch": AA1110,
+                "status" : "ongoing",
 
-    const fileExtension = media.file.split(".").pop()?.toLowerCase();
-    const typeMap: Record<string, string> = {
-      mp4: "video",
-      avi: "video",
-      mov: "video",
-      mp3: "audio",
-      wav: "audio",
-      jpg: "image",
-      jpeg: "image",
-      png: "image",
-    };
+                //net_{$index} option to add more nets or remove nets in form
+                "net_1":[
+                    "netId": 1 ,
+                    "lay_start": "2024-27-27T22:52:56.683265Z",
+                    //Media is dynamic {eg: media_title_$index}
+                    "media":[
+                        "media_title_0" = "Net 1 Lay_Start 1",
+                        "medial_file_0" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-12_060102_3_107_.mp4",
+                        "medial_comment_0" = " ",
+                        "media_title_1" = "Net 1 Lay_Start 2 ",
+                        "medial_file_1" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-12_070422_3_107_.mp4",
+                        "medial_comment_1" = " ",
+                        "media_title_2" = " ",
+                        "medial_file_2" = "Net 1 Lay_Start 3 ",
+                        "medial_comment_2" = " ",
+                    ],
+                ],
 
-    return {
-      ...media,
-      fileType: typeMap[fileExtension || ""] || "unknown",
-    };
-  };
+                "net_2":[
+                    "netId": 2,
+                    "lay_start": "2024-28-27T22:52:56.683265Z",
+                    "media":[
+                        "media_title_0" = "Net 2 Lay_Start 1 ",
+                        "medial_file_0" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-21_133551_3_107_.mp4",
+                        "medial_comment_0" = " ",
+                        "media_title_1" = "Net 2 Lay_Start 2 ",
+                        "medial_file_1" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-15_211043_3_107_.mp4",
+                        "medial_comment_1" = " ",
+                    ],
+                ],
+                "net_1":[
+                    "netId": 3,
+                    "lay_start": "2024-26-27T22:52:56.683265Z" ,
+                    "media":[
+                        "media_title_0" = "Net 3 Lay_Start 1 ",
+                        "medial_file_0" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-10_002309_3_107_.mp4",
+                        "medial_comment_0" = "Net 3 Lay_Start 1 ",
+                        "media_title_1" = "Net 3 Lay_Start 2 ",
+                        "medial_file_1" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-09_182446_3_107_.mp4",
+                        "medial_comment_1" = "Net 3 Lay_Start 2 ",
+                        "media_title_2" = "Net 3 Lay_Start 3 ",
+                        "medial_file_2" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-15_052753_3_107_.mp4",
+                        "medial_comment_2" = "Net 3 Lay_Start 3 ",
+                        "media_title_3" = "Net 3 Lay_Start 4 ",
+                        "medial_file_3" = "C:\Users\uprin\OneDrive\Documents\BIZ\FISH FARMING\VIDEOS\2023\APRIL\UBox_2023-04-15_044536_3_107_.mp4",
+                        "medial_comment_3" = "Net 3 Lay_Start 4 ",
+                    ],
+                ],
 
-  const sortedNetUseStats = useMemo(() => {
-    return [...(netUseStats || [])].sort((a: any, b: any) => {
-      if (a.stats === b.stats) return 0;
-      if (a.stats === "ongoing" && b.stats !== "ongoing")
-        return sortOrder === "asc" ? -1 : 1;
-      if (a.stats !== "ongoing" && b.stats === "ongoing")
-        return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [netUseStats, sortOrder]);
+            }
 
-  return (
-    <Drawer anchor="right" open={open} onClose={onClose}>
-      <Box sx={{ width: 600, padding: 2 }} role="presentation">
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h5" gutterBottom>
-            {batch?.batch_name || "Batch Details"}
-          </Typography>
-          <Button variant="text" color="primary" onClick={onClose}>
-            Close
-          </Button>
-        </Box>
-        <Divider />
-        <Grid container spacing={2} sx={{ mt: 2 }}>
-          {/* Radio Buttons */}
-          <Grid item xs={3} id="BatchInfoContainer">
-            <FormControl component="fieldset">
-              <RadioGroup value={selectedOption} onChange={handleRadioChange}>
-                <FormControlLabel value="Laying" control={<Radio />} label="Laying" />
-                <FormControlLabel value="Incubation" control={<Radio />} label="Incubation" />
-                <FormControlLabel value="Nursery" control={<Radio />} label="Nursery" />
-                <FormControlLabel value="Growout" control={<Radio />} label="Grow Out" />
-                <FormControlLabel value="PrePupa" control={<Radio />} label="PrePupa" />
-                <FormControlLabel value="Pupa" control={<Radio />} label="Pupa" />
-              </RadioGroup>
-              {/* Add Button */}
-              <Box sx={{ mt: 2, textAlign: "center" }}>
-                <Tooltip title="Add new laying data for this batch">
-                  <Button
-                    id="addNewLayInfoButton"
-                    variant="contained"
-                    color="primary"
-                    startIcon={<AddCircleOutlineIcon />}
-                    onClick={handleAddNewLayInfoClick}
-                  >
-                    Add
-                  </Button>
-                </Tooltip>
-              </Box>
-            </FormControl>
-          </Grid>
 
-          {/* NetUseStatsTableContainer */}
-          <Grid item xs={9} id="NetUseStatsTableContainer">
-            {selectedOption !== "Laying" ? (
-              <PondUseStatsDisplay
-                harvest_stage={selectedOption}
-                companyId={companyId}
-                farmId={farmId}
-                batchId={batch?.id}
-              />
-            ) : loading ? (
-              <CircularProgress />
-            ) : error ? (
-              <Alert severity="error">{error}</Alert>
-            ) : (
-              <TableContainer
-                sx={{
-                  maxHeight: 250,
-                  overflowY: "auto",
-                }}
-              >
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Net Name</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Associated</TableCell>
-                      <TableCell>Edit</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {sortedNetUseStats.map((net: any) => (
-                      <TableRow
-                        key={net.id}
-                        sx={{
-                          backgroundColor:
-                            selectedNet?.id === net.id ? "#f0f8ff" : "inherit",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <TableCell onClick={() => handleRowClick(net)}>
-                          {net.associated_net?.name || `Net ${net.id}`}
-                        </TableCell>
-                        <TableCell onClick={() => handleRowClick(net)}>
-                          {net.stats}
-                        </TableCell>
-                        <TableCell onClick={() => handleRowClick(net)}>
-                          {net.associated_media?.length > 0 ? (
-                            <VideocamIcon sx={{ fontSize: 20, color: "green" }} />
-                          ) : (
-                            <VideocamOffIcon sx={{ fontSize: 20, color: "gray" }} />
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Tooltip
-                            title={
-                              net.stats === "completed"
-                                ? "Edit disabled for completed status"
-                                : "Edit Net Use"
-                            }
-                          >
-                            <EditIcon
-                              sx={{
-                                fontSize: 20,
-                                color:
-                                  net.stats === "completed" ? "gray" : "blue",
-                                cursor:
-                                  net.stats === "completed" ? "default" : "pointer",
-                              }}
-                              onClick={() => handleEditClick(net.id, net.stats)}
-                            />
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </Grid>
-        </Grid>
-        <Divider sx={{ mt: 2, mb: 2 }} />
 
-        {/* AssociatedMediaContainer */}
-        <Box
-          id="AssociatedMediaContainer"
-          sx={{
-            mt: 2,
-            p: 2,
-            border: "1px solid #ccc",
-            borderRadius: 4,
-            backgroundColor: "#f9f9f9",
-          }}
-        >
-          {showNetUseForm ? (
-            <NetUseCreateForm
-              companyId={companyId}
-              farmId={farmId}
-              batchId={batch?.id}
-            />
-          ) : editNetId !== null ? (
-            <EditNetUseStats
-              id={editNetId}
-              companyId={companyId}
-              farmId={farmId}
-              batchId={batch?.id}
-            />
-          ) : selectedNet ? (
-            <>
-              <Typography variant="h6">Net Details</Typography>
-              <Box display="flex" justifyContent="space-between" mb={2}>
-                <Typography>
-                  <strong>Lay Start:</strong> {new Date(selectedNet.lay_start).toDateString()}
-                </Typography>
-                <Typography>
-                  <strong>Lay End:</strong> {new Date(selectedNet.lay_end).toDateString()}
-                </Typography>
-              </Box>
-              <Typography>
-                <strong>Harvest Weight:</strong> {selectedNet.harvest_weight} g
-              </Typography>
+            Requirements: 
+                create a names for Forms that include 
+                i. appName
+                ii. modelName
+                iii. activityname
+                iiii. tablename
+                iiiii. bsfname
+                
+            
+            
+            
+            make the following additions to class TaskListCreateView(generics.ListCreateAPIView) :
 
-              {/* Media Section */}
-              {selectedNet.associated_media?.length > 0 ? (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <Box>
-                    <Typography variant="h6">Associated Media</Typography>
-                    <Carousel autoPlay={!isCarouselPaused}>
-                      {selectedNet.associated_media.map((media: MediaItem) => (
-                        <MediaDisplay key={media.id} media={media} />
-                      ))}
-                    </Carousel>
-                  </Box>
-                </>
-              ) : (
-                <Typography sx={{ mt: 2 }}>No media associated with this net.</Typography>
-              )}
-            </>
-          ) : (
-            <Typography>No Net selected. Click a row to view details.</Typography>
-          )}
-        </Box>
-      </Box>
-    </Drawer>
-  );
-};
+                1. If company is provided in param:  
+                    a. Ensure company exist
+                    b. If branch is provided in param : 
+                        i. Ensure branch of company exist
+                        ii. Sort Task by branch of company
+                        else :
+                            sort Task by company  
 
-const MediaDisplay: React.FC<{ media: MediaItem }> = ({ media }) => {
-  const mediaUrl = `${backendURL}${media.file}`;
+                1. Allow management acess.
+                    member_querySet = []
+                    if param_leader == true :
+                        from appName, staffMmeber, get all (user == leader)
+                        for each staff as staffMeber :
+                            mQuery = get Task(owner == staff.user)
+                            append mQuery to member_querySet
+                            return member_querySet
 
-  switch (media.fileType) {
-    case "video":
-      return (
-        <video
-          src={mediaUrl}
-          controls
-          style={{ maxHeight: "300px", width: "100%" }}
-        />
-      );
-    case "audio":
-      return (
-        <audio
-          src={mediaUrl}
-          controls
-          style={{ width: "100%" }}
-        />
-      );
-    case "image":
-      return (
-        <img
-          src={mediaUrl}
-          alt={media.title}
-          style={{ maxHeight: "300px", width: "100%" }}
-        />
-      );
-    default:
-      return <Typography>Unsupported media type</Typography>;
-  }
-};
+                                
+                    if a leader get all subordinates provided you are not task.owner or assitant.
 
-export default BatchDetailsModal;
+                1. for each task in Task:
+                    a. if Task.status is not active:
+                        i. if compeleted_by is USER:
+                                ADD task data to lsit to be returned.
+                        ii. if compeleted_by is not USER: 
+                                exclude task data from list to be returned.
+                        
+
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide complete updated files, preserving all existing logic and code that doesn't need modification. 
+                        The changes should focus solely on fixing the reported requirements while retaining the original implementation.
+                3.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+                3. Ask if you need to review additional files that we might have to help you in updating the code
+
+
+
+
+            Existing data:
+                
+                
+                class TaskListCreateView(generics.ListCreateAPIView):
+                    serializer_class = TaskSerializer
+                    permission_classes = [IsAuthenticated]
+
+                    def get_queryset(self):
+                        """
+                        Fetch tasks based on user, company, branch, status query parameters,
+                        and annotate late task information if the user is an assistant.
+                        Include tasks late by 2 days or more if the user is a branch staff.
+                        """
+                        user = self.request.user # Get the authenticated user
+                        queryset = Task.objects.all() # Get all tasks
+
+                        # Handle query parameters
+                        all_param = self.request.query_params.get("all", "false").lower() == "true"
+                        owner_param = self.request.query_params.get("owner", "false").lower() == "true"
+                        assistant_param = self.request.query_params.get("assistant", "false").lower() == "true"
+                        company_id = self.request.query_params.get("company")
+                        branch_id = self.request.query_params.get("branch")
+                        status_param = self.request.query_params.get("status")
+
+                        if all_param:
+                            # also check if user is a manager of the farm***.
+
+                            if branch_id and not company_id:
+                                raise ValidationError("'company' is required when 'branch' is provided.")
+
+                            if company_id:
+                                try:
+                                    company = Company.objects.get(id=company_id)
+                                except Company.DoesNotExist:
+                                    raise ValidationError(f"Company with ID '{company_id}' does not exist.")
+
+                                if not has_permission(user, company, app_name="bsf", model_name="Task", action="view"):
+                                    raise PermissionDenied("You do not have permission to view tasks for this company.")
+
+                                queryset = queryset.filter(company=company)
+
+                                if branch_id:
+                                    try:
+                                        branch = Branch.objects.get(branch_id=branch_id)
+                                    except Branch.DoesNotExist:
+                                        raise ValidationError(f"Branch with ID '{branch_id}' does not exist.")
+
+                                    if branch.company != company:
+                                        raise ValidationError(f"Branch '{branch.name}' does not belong to Company '{company.name}'.")
+
+                                    queryset = queryset.filter(branch=branch)
+                    
+                        elif owner_param:
+                            # Get all tasks where the user is the owner
+                            queryset = queryset.filter(owner=user)
+
+                        elif assistant_param:
+                            # Get all tasks where the user is the assistant
+                            queryset = queryset.filter(assistant=user)
+                        else:
+                            # Get all tasks assigned to the user
+                            queryset = queryset.filter(assigned_to=user)
+
+                            # Get all late tasks where the user is an assistant
+                            late_tasks = Task.objects.filter(
+                                due_date__lt=now() - timedelta(days=1),
+                                status="active",
+                                assistant=user
+                            )
+                            queryset = queryset | late_tasks  # Combine the two querysets
+
+                        
+                        # Include extra tasks delayed by 2 or more days for branch staff
+                        delayed_tasks = Task.objects.filter(
+                            due_date__lt=now() - timedelta(days=2),
+                            status="active"
+                        )
+
+                        for task in delayed_tasks:
+                            appName = task.appName
+                            # Check if the user is an active staff member of the branch
+                            StaffMemberModel = apps.get_model(appName, 'StaffMember')
+                            if StaffMemberModel.objects.filter(user=user, status="active", company=task.company).exists():
+                                queryset = queryset | delayed_tasks 
+
+                        # Filter by status
+                        if status_param:
+                            valid_status_choices = [choice[0] for choice in Task.STATUS_CHOICES]
+                            if status_param not in valid_status_choices:
+                                raise ValidationError({"status": f"Invalid status '{status_param}'. Valid options are: {', '.join(valid_status_choices)}."})
+                            queryset = queryset.filter(status=status_param)
+
+                        if company_id:
+                                try:
+                                    company = Company.objects.get(id=company_id)
+                                except Company.DoesNotExist:
+                                    raise ValidationError(f"Company with ID '{company_id}' does not exist.")
+                                if not has_permission(user, company, app_name="bsf", model_name="Task", action="view"):
+                                    raise PermissionDenied("You do not have permission to view tasks for this company.")
+                                
+                                
+                                
+                        return queryset
+
+                    def perform_create(self, serializer):
+                        serializer.save()
+

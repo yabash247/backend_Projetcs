@@ -37,7 +37,21 @@ from corsheaders.defaults import default_headers
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'Company-ID',
+    "content-type",  # Include required headers
+    "authorization",
+    "x-requested-with",
 ]
+
+
+CORS_ALLOW_METHODS = [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+]
+
 
 CORS_ALLOWED_ORIGINS = [
     'https://frontend-eight-wheat-85.vercel.app',
@@ -45,6 +59,9 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8081',  # Replace with your frontend URL
     'http://127.0.0.1:8080',   # Example with localhost IP
     'http://localhost:3000',
+    "http://127.0.0.1:5173",  # Vite+React Frontend URL
+    "http://localhost:5173",  # Frontend URL
+    "http://localhost:5173",
 ]
 
 
@@ -139,8 +156,8 @@ SIMPLE_JWT = {
 }
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -178,6 +195,8 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 
+
+
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
@@ -209,6 +228,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600
+
+#FILE_UPLOAD_TEMP_DIR = "C:\Users\uprin\Documents\PHYTON\temp"
+
 
 
 # Internationalization

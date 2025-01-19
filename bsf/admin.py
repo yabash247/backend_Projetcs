@@ -7,10 +7,10 @@ class FarmAdmin(admin.ModelAdmin):
 
 @admin.register(StaffMember)
 class StaffMemberAdmin(admin.ModelAdmin):
-    list_display = ('id','user', 'position', 'farm', 'company', 'level', 'status', 'assigned_at', 'created_by')
+    list_display = ('id','user', 'position', 'leader', 'branch', 'company', 'level', 'status', 'assigned_at', 'created_by', 'farm')
     search_fields = ('user__username', 'farm__name', 'position')
     list_filter = ('position', 'level', 'status', 'farm', 'assigned_at')
-    list_editable = ('position', 'level', 'status')
+    list_editable = ('position', 'branch', 'level', 'status', 'leader')
 
 
 
@@ -29,7 +29,7 @@ class NetAdmin(admin.ModelAdmin):
         Return a list or tuple of field names that will be displayed as read-only in the admin interface.
         """
         if obj:
-            return ('name', 'farm', 'company', 'created_at')
+            return ('name', 'farm', 'branch', 'company', 'created_at')
         return ()
 
 @admin.register(Batch)
@@ -62,6 +62,7 @@ class DurationSettingsAdmin(admin.ModelAdmin):
 class NetUseStatsAdmin(admin.ModelAdmin):
     list_display = (
         "id",
+        "stats",
         "company",
         "farm",
         "net",
@@ -69,7 +70,6 @@ class NetUseStatsAdmin(admin.ModelAdmin):
         "lay_start",
         "lay_end",
         "harvest_weight",
-        "stats",
         "created_by",
         "approved_by",
         "created_at",

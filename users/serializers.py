@@ -14,6 +14,7 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
         return user
+
     
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -22,12 +23,33 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    associated_user_data = serializers.SerializerMethodField()
+
     class Meta:
         model = UserProfile
-        fields = ['profile_image', 'bio']
-    
+        fields = [
+            'profile_image',
+            'bio',
+            'first_name',
+            'last_name',
+            'title',
+            'website',
+            'phone',
+            'birthday',
+            'age',
+            'associated_user_data',  # New field
+        ]
+
+    def get_associated_user_data(self, obj):
+        """
+        Fetch and serialize the associated user data.
+        """
+        user = obj.user  # Access the related User object
+        return UserSerializer(user).data
+
     def update(self, instance, validated_data):
         instance.profile_image = validated_data.get('profile_image', instance.profile_image)
         instance.bio = validated_data.get('bio', instance.bio)
         instance.save()
         return instance
+

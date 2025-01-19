@@ -1,87 +1,197 @@
+class PointsRewardSystem:
+    def __init__(self, staff):
+        """
+        Initialize the reward system with dynamic maximum monthly points for the staff.
+        
+        Args:
+            staff (Staff): The staff member for whom the reward system is initialized.
+        """
+        # Fetch the max monthly points from the Staff model
+        max_points_data = staff.get_max_reward_points_and_value()
+        self.max_monthly_points = max_points_data.get("max_points", 0)
 
+    def allocate_points(self, staff, task):
+        """
+        Allocate points to a staff member for a completed task, pending approval.
 
-Requirements: Create Class too: Return only available ponds. 
-   1. Get all status active Ponds. (Class PondView(APIView > def get(self, request, *args, **kwargs)) )  already returns this, can we reuse the is function.
-   2. ForEach Pond returned in 1. above, check to ensure Pond has no ongoing status in PondUseStatsView(APIView) >  def get(self, request, *args, **kwargs) return 
+        Args:
+            staff (Staff): The staff member object.
+            task (Task): The completed task object.
 
+        Returns:
+            dict: A dictionary with allocation details or error messages.
+        """
+        # Step 1: Check task status
+        if task.status == "appeal":
+            if not self.is_approved_by_hierarchy(staff, task):
+                return {"status": "failure", "reason": "Task is under appeal and has not been approved by the appropriate lead."}
 
-Important Instruction:
-    1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
-    2.  Provide the complete updated files for my project:  
-        a. Each file should include existing code, along with modifications or additions due to the new requirements. 
-        b. Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+        # Step 2: Validate the task
+        if task.status != "completed" and task.status != "appeal":
+            return {"status": "failure", "reason": "Task is not marked as completed or approved appeal."}
 
+        # Step 3: Check staff eligibility
+        if not staff.reward:
+            return {"status": "failure", "reason": "Staff is not eligible for rewards."}
 
-Existing data:
+        # Step 4: Check video evidence
+        if not self.has_video_evidence(task):
+            return {"status": "failure", "reason": "Video evidence is required for this task."}
 
-    class PondView(APIView):
-        permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+        # Step 5: Validate dataset completeness
+        if not self.is_dataset_complete(task):
+            return {"status": "failure", "reason": "Incomplete dataset. Ensure all required entries are filled."}
 
-        def get(self, request, *args, **kwargs):
-            """
-            View all ponds or retrieve a pond by ID (optional).
-            """
-            company_id = request.query_params.get("company")
-            farm_id = request.query_params.get("farm")
-            pond_id = kwargs.get("id")
+        # Step 6: Calculate points
+        points_per_task = self.calculate_points(task)
+        total_monthly_points = self.get_monthly_allocated_points(staff)
 
-            if not company_id or not farm_id:
-                return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+        if total_monthly_points + points_per_task > self.max_monthly_points:
+            return {"status": "failure", "reason": "Exceeds monthly points allocation limit."}
 
-            # Fetch and validate the company and farm
-            company = get_object_or_404(Company, id=company_id)
-            farm = get_object_or_404(Farm, id=farm_id, company=company)
+        # Step 7: Log points in RewardsPointsTracker as pending
+        self.log_pending_points(staff, task, points_per_task)
 
-            # Check permissions
-            has_permission(request.user, company, "bsf", "Pond", "view")
+        # Step 8: Log and return result
+        return {
+            "status": "pending",
+            "staff": staff.user.username,
+            "pending_points": points_per_task,
+            "total_points_this_month": total_monthly_points + points_per_task,
+        }
 
-            if pond_id:
-                # Retrieve specific pond by ID
-                pond = get_object_or_404(Pond, id=pond_id, farm=farm)
-                media = get_associated_media(pond.id, "Ponds", "bsf", company)
-                pond_data = {
-                    "pond": PondSerializer(pond).data,
-                    "associated_media": MediaSerializer(media, many=True).data
-                }
-                return Response(pond_data, status=status.HTTP_200_OK)
+    def is_approved_by_hierarchy(self, staff, task):
+        """
+        Check if the task has been approved by the user's lead or their lead's lead.
 
-            # Retrieve all ponds
-            ponds = Pond.objects.filter(farm=farm)
-            return Response(PondSerializer(ponds, many=True).data, status=status.HTTP_200_OK)
+        Args:
+            staff (Staff): The staff member whose task is being evaluated.
+            task (Task): The task to check.
 
-    class PondUseStatsView(APIView):
-        permission_classes = [IsAuthenticated]  # Ensure the user is authenticated
+        Returns:
+            bool: True if approved by the hierarchy, False otherwise.
+        """
+        approved_by = task.approved_by
+        if not approved_by:
+            return False
 
-        def get(self, request, *args, **kwargs):
-            """
-            View all PondUseStats or retrieve a PondUseStats by ID (optional).
-            """
-            company_id = request.query_params.get("company")
-            farm_id = request.query_params.get("farm")
-            pondusestats_id = kwargs.get("id")
+        # Check if the approver is the user's lead
+        if Staff.objects.filter(user=approved_by, leader=staff.user).exists():
+            return True
 
-            if not company_id or not farm_id:
-                return Response({"detail": "'company' and 'farm' parameters are required."}, status=status.HTTP_400_BAD_REQUEST)
+        # Check if the approver is the lead's lead
+        lead = Staff.objects.filter(user=staff.user).first()
+        if lead and Staff.objects.filter(user=approved_by, leader=lead.user).exists():
+            return True
 
-            # Fetch and validate the company and farm
-            company = get_object_or_404(Company, id=company_id)
-            farm = get_object_or_404(Farm, id=farm_id, company=company)
+        return False
 
-            # Check permissions
-            has_permission(request.user, company, "bsf", "PondUseStats", "view")
+    def approve_points(self, staff, points, task):
+        """
+        Approve pending points for a staff member and update the RewardsPointsTracker.
 
-            if pondusestats_id:
-                # Retrieve specific PondUseStats by ID
-                pondusestats = get_object_or_404(PondUseStats, id=pondusestats_id, farm=farm)
-                media = get_associated_media(pondusestats.id, "PondUseStats", "bsf", company)
-                data = {
-                    "pondusestats": PondUseStatsSerializer(pondusestats).data,
-                    "associated_media": MediaSerializer(media, many=True).data,
-                }
-                return Response(data, status=status.HTTP_200_OK)
+        Args:
+            staff (Staff): The staff member.
+            points (int): Points to approve.
+            task (Task): The task associated with the points.
+        """
+        if task.status != "pending":
+            return {"status": "failure", "reason": "Task is not in a pending state for approval."}
 
-            # Retrieve all PondUseStats for the specified farm
-            pondusestats = PondUseStats.objects.filter(farm=farm)
-            return Response(PondUseStatsSerializer(pondusestats, many=True).data, status=status.HTTP_200_OK)
+        tracker_entry = RewardsPointsTracker.objects.filter(user=staff.user, task=task, points_pending=points).first()
+        if not tracker_entry:
+            raise ValueError("No matching pending points entry found for approval.")
 
-  
+        # Update the tracker and the task
+        tracker_entry.points_pending -= points
+        tracker_entry.credit += points
+        tracker_entry.credit_date = now()
+        tracker_entry.save()
+
+        task.status = "completed"  # Mark task as completed post-approval
+        task.approved_by = staff.user
+        task.approved_date = now()
+        task.save()
+
+        return {
+            "status": "success",
+            "approved_points": points,
+            "total_approved_points": tracker_entry.credit,
+        }
+
+    def has_video_evidence(self, task):
+        """
+        Check if video evidence is uploaded for the task.
+
+        Args:
+            task (Task): The task to check.
+
+        Returns:
+            bool: True if video evidence exists, False otherwise.
+        """
+        # Example logic for checking video evidence
+        pass
+
+    def is_dataset_complete(self, task):
+        """
+        Validate that the dataset for the task is complete.
+
+        Args:
+            task (Task): The task to validate.
+
+        Returns:
+            bool: True if the dataset is complete, False otherwise.
+        """
+        required_count = task.dataQuantity
+        completed_entries = task.completeDetails.count('[')  # Count number of entries in completeDetails
+        return completed_entries == required_count
+
+    def calculate_points(self, task):
+        """
+        Calculate the points for a given task based on its details.
+
+        Args:
+            task (Task): The completed task.
+
+        Returns:
+            int: The calculated points.
+        """
+        base_points = 1000  # Example base points per task
+        importance_factor = task.activity_importance_scale or 1  # Use task's importance
+        return base_points * importance_factor
+
+    def get_monthly_allocated_points(self, staff):
+        """
+        Get the total points allocated to a staff member for the current month using the tracker.
+
+        Args:
+            staff (Staff): The staff member.
+
+        Returns:
+            int: Total points allocated this month.
+        """
+        current_month = now().month
+        current_year = now().year
+
+        return RewardsPointsTracker.objects.filter(
+            user=staff.user,
+            credit_date__month=current_month,
+            credit_date__year=current_year
+        ).aggregate(total=models.Sum('credit'))['total'] or 0
+
+    def log_pending_points(self, staff, task, points):
+        """
+        Log pending points in the RewardsPointsTracker.
+
+        Args:
+            staff (Staff): The staff member.
+            task (Task): The task associated with the points.
+            points (int): Points to log.
+        """
+        RewardsPointsTracker.objects.create(
+            user=staff.user,
+            company=staff.company,
+            branch=task.branch,
+            task=task,
+            points_pending=points,
+        )

@@ -1,7 +1,7 @@
 # models.py
 from django.db import models
 from django.contrib.auth import get_user_model
-from company.models import Company
+from company.models import Company, Branch
 from django.core.exceptions import ValidationError
 from difflib import SequenceMatcher
 from django.utils.timezone import now
@@ -17,6 +17,9 @@ class Farm(models.Model):
     ]
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="farms")
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="farms", help_text="The branch to which the Net is assigned."
+    )   
     creatorId = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_farms")
     name = models.CharField(max_length=255, help_text="Name of the farm.")
     description = models.TextField(help_text="General description of the farm.")
@@ -80,8 +83,10 @@ class StaffMember(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="staff_members")
+    leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name="staff_member_lead", null=True, blank=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="staff_members")
     farm = models.ForeignKey('Farm', on_delete=models.CASCADE, related_name="staff_members")
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="staff_members")
     position = models.CharField(max_length=20, choices=POSITION_CHOICES)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
     level = models.IntegerField(choices=LEVEL_CHOICES, default=1)  # New level field
@@ -105,7 +110,10 @@ class Net(models.Model):  # New model for Black Soldier Fly's Love Cage
         ('broken', 'Broken'),
     ]
 
+    
+
     name = models.CharField(max_length=255, help_text="Name of the Net (Love Cage).")
+    expect_harvest = models.FloatField(help_text="Expected harvest weight in grams", default=0)
     length = models.FloatField(help_text="Length of the Net in meters.")
     width = models.FloatField(help_text="Width of the Net in meters.")
     height = models.FloatField(help_text="Height of the Net in meters.")
@@ -115,6 +123,9 @@ class Net(models.Model):  # New model for Black Soldier Fly's Love Cage
     created_at = models.DateTimeField(default=now, help_text="Timestamp when the Net was created.")
     company = models.ForeignKey(
         Company, on_delete=models.CASCADE, related_name="nets", help_text="The company owning the Net."
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="nets", help_text="The branch to which the Net is assigned."
     )
     farm = models.ForeignKey(
         Farm, on_delete=models.CASCADE, related_name="nets", help_text="The farm to which the Net is assigned."
@@ -127,7 +138,6 @@ class Net(models.Model):  # New model for Black Soldier Fly's Love Cage
         verbose_name = "Net"
         verbose_name_plural = "Nets"
         unique_together = ('name', 'farm', 'company')  # Ensure unique Net name within the same farm and company
-
 
 
 class Batch(models.Model):
@@ -200,11 +210,11 @@ class Batch(models.Model):
     def generate_batch_name(self):
         """
         Generates a unique batch name based on the farm.
-        Follows the pattern: AA1, AA2 ... AA10, AB1, AB2 ... AB10
+        Follows the pattern: A1, A2 ... A10, B1, B2 ... AB10
         """
         last_batch = Batch.objects.filter(farm=self.farm).order_by("created_at").last()
         if not last_batch:
-            return "AA1"
+            return "A1"
 
         # Extract prefix and number from the last batch name
         last_name = last_batch.batch_name
@@ -220,7 +230,7 @@ class Batch(models.Model):
     @staticmethod
     def increment_prefix(prefix):
         """
-        Increments the prefix alphabetically (e.g., AA -> AB, AZ -> BA)
+        Increments the prefix alphabetically (e.g., A -> Z, AZ -> BA)
         """
         prefix_list = list(prefix)
         for i in range(len(prefix_list) - 1, -1, -1):
@@ -260,24 +270,32 @@ class NetUseStats(models.Model):
         ("completed", "Completed"),
     ]
 
+    EXPECTATION_CHOICES = [
+        ("outstanding", "Outstanding"),
+        ("exceeds_expectation", "Exceeds Expectation"),
+        ("satisfactory", "Satisfactory"),
+        ("unsatisfactory", "Unsatisfactory"),
+        ("poor", "Poor"),
+    ]
+
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="net_use_stats")
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="net_use_stats")
     net = models.ForeignKey(Net, on_delete=models.CASCADE, related_name="net_use_stats")
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name="net_use_stats")
 
-    lay_start = models.DateTimeField()
-    lay_end = models.DateTimeField(null=True, blank=True)
+    lay_start = models.DateField(null=True, blank=True)
+    lay_end = models.DateField(null=True, blank=True)
     harvest_weight = models.FloatField(
         null=True, blank=True, help_text="Harvest weight in grams"
     )
-
+    laying_ratting = models.CharField(max_length=40, choices=EXPECTATION_CHOICES, default="unsatisfactory")
     stats = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ongoing")
 
     created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="created_net_use_stats")
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_net_use_stats")
 
-    created_at = models.DateTimeField(default=now)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateField(null=True, blank=True)
+    updated_at = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return f"NetUseStats for {self.net.name} in Batch {self.batch.batch_name}"
@@ -361,6 +379,14 @@ class PondUseStats(models.Model):
         ('Completed', 'Completed'),
     ]
 
+    EXPECTATION_CHOICES = [
+        ("outstanding", "Outstanding"),
+        ("exceeds_expectation", "Exceeds Expectation"),
+        ("satisfactory", "Satisfactory"),
+        ("unsatisfactory", "Unsatisfactory"),
+        ("poor", "Poor"),
+    ]
+
     # Fields
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_pond_use_stats', verbose_name="Created By")
     approver_id = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_pond_use_stats', verbose_name="Approver")
@@ -368,6 +394,7 @@ class PondUseStats(models.Model):
     start_weight = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Start Weight (g)")
     harvest_date = models.DateField(null=True, blank=True, verbose_name="Harvest Date")
     harvest_weight = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Harvest Weight (kg)")
+    laying_ratting = models.CharField(max_length=40, choices=EXPECTATION_CHOICES, default="unsatisfactory")
     harvest_stage = models.CharField(max_length=20, choices=HARVEST_STAGE_CHOICES, verbose_name="Harvest Stage")
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Batch")
     pond = models.ForeignKey(Pond, on_delete=models.CASCADE, related_name='pond_use_stats', verbose_name="Pond")
@@ -385,8 +412,11 @@ class PondUseStats(models.Model):
     def save(self, *args, **kwargs):
         # Automatically set pond_name from the associated Pond instance
         if not self.pond_name:
-            self.pond_name = self.pond.pond_name
+            self.pond_name = getattr(self.pond, 'pond_name', 'Unknown Pond')
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.pond_name} - {self.harvest_stage} ({self.start_date})"
+
+
+

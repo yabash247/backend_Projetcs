@@ -1,7 +1,6 @@
 from rest_framework import serializers
-from .models import Company, Authority, Staff, StaffLevels, Branch
+from .models import Company, Authority, Staff, StaffLevels, Branch, Task, Media
 from django.apps import apps
-from .models import Media
 from django.db.models import Q
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -142,3 +141,20 @@ class MediaSerializer(serializers.ModelSerializer):
         # Example: Query past inputs from this model for suggestions
 
         return media_instance
+
+
+class TaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Task
+        fields = "__all__"
+        read_only_fields = ['id', 'created_at']
+
+
+    
+  
+from .models import ActivityOwner
+class ActivityOwnerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ActivityOwner
+        fields = '__all__'
+        read_only_fields = ['id', 'user', 'company']

@@ -9,7 +9,8 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 
 def profile_image_path(instance, filename):
     base, ext = os.path.splitext(filename)
-    return f"profile_images/{instance.username}_{instance.id}{ext}"
+    return f"user/{instance.id}/{instance.id}{ext}"
+
 
 class User(AbstractUser):
     # Add any custom fields if needed

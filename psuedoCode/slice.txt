@@ -1,0 +1,231 @@
+Requirements: Create netSlice.ts 
+                
+ Requirements:  createLayStart thunk in netSlice.ts :
+
+                    endpoint url : `${backendURL}/api/bsf/net-use-stats/
+                    Post Method
+
+                    data needed with request :
+                        Autorization: acessToken (This can be gotten from :const state = getState() as RootState; const accessToken = state.auth.access;)
+                        formData sent from Laying_Start component: 
+                            sample of from data : 
+                                {
+                                    "taskId": 16,
+                                    "taskTitle": "Need to add Net Use Start Info for Batch: AA1110",
+                                    "createdDate": "2024-12-27T22:52:56.683265Z",
+                                    "appName": "bsf",
+                                    "modelName": "NetInUse",
+                                    "activity": "Laying_Start",
+                                    "batch": "AA1110",
+                                    "farm": "8",
+                                    "company": 5,
+                                    "layStarts": [
+                                        {
+                                            "net": "Net 1",
+                                            "startDate": "2024-12-28",
+                                            "media": [
+                                                {
+                                                    "title": "test ",
+                                                    "file": {},
+                                                    "comments": "test 1"
+                                                },
+                                                {
+                                                    "title": "task2",
+                                                    "file": {},
+                                                    "comments": "task3"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "net": "Net 3",
+                                            "startDate": "2024-12-04",
+                                            "media": [
+                                                {
+                                                    "title": "task4",
+                                                    "file": {},
+                                                    "comments": "task5"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                 
+                Other instructions
+                    Flatten the layStart and media array into individual keys for compatibility with Django backend
+                    create the needed state(s)
+                    use sweet alert
+                    provide store.ts example for the slice
+
+                    create a component :
+                        that gets all task and displays in a tabular form.
+                        design using tailwind
+                        tabular form should also have an edit button
+                            below is a returned result in json formart 
+
+                    
+                        
+
+            Important Instruction:
+                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
+                2.  Provide complete updated files, preserving all existing logic and code that doesn't need modification. 
+                        The changes should focus solely on fixing the reported requirements while retaining the original implementation.
+                3.  Provide the complete updated files for my project:  
+                        Each file should include existing code, along with modifications or additions due to the new requirements. 
+                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
+                3. Ask if you need to review additional files that we might have to help you in updating the code
+
+
+
+
+            Existing data:
+
+                netSlice.ts
+                
+                    import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+                    import axios from "axios";
+                    import Swal from "sweetalert2";
+                    import { RootState } from "../../Store";
+                    import { backendURL } from "../../../Utils/Constants";
+
+
+                    interface NetState {
+                    nets: any[];
+                    netsAvailable: any[];
+                    status: "idle" | "loading" | "succeeded" | "failed";
+                    error: string | null;
+                    }
+
+                    const initialState: NetState = {
+                    nets: [],
+                    netsAvailable: [],
+                    status: "idle",
+                    error: null,
+                    };
+
+                    // Thunk to fetch nets
+                    export const getNet = createAsyncThunk(
+                    "nets/getNet",
+                    async (
+                        params: {
+                        company: string;
+                        farm: string;
+                        },
+                        { getState, rejectWithValue }
+                    ) => {
+                        const state = getState() as RootState;
+                        const accessToken = state.auth.access;
+
+                        try {
+                        const response = await axios.get(`${backendURL}/api/bsf/nets/`, {
+                            headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            },
+                            params,
+                        });
+                        Swal.fire({
+                            icon: "success",
+                            title: "Nets Fetched",
+                            text: "The nets were successfully retrieved.",
+                            position: "top-right",
+                            timerProgressBar: true,
+                            timer: 1500,
+                            toast: true,
+                        });
+                        return response.data;
+                        } catch (error: any) {
+                        Swal.fire({
+                            icon: "error",
+                            title: "Error Fetching Nets",
+                            text: error.response?.data || "An error occurred while fetching nets.",
+                        });
+                        return rejectWithValue(
+                            error.response?.data || "An error occurred while fetching nets."
+                        );
+                        }
+                    }
+                    );
+
+                    // Thunk to fetch available nets
+                    export const getNetAvailable = createAsyncThunk(
+                    "nets/getNetAvailable",
+                    async (
+                        params: {
+                        company: string;
+                        farm: string;
+                        },
+                        { getState, rejectWithValue }
+                    ) => {
+                        const state = getState() as RootState;
+                        const accessToken = state.auth.access;
+                        console.log(params);
+                        try {
+                        const response = await axios.get(`${backendURL}/api/bsf/nets_statsCheck/`, {
+                            headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            },
+                            params,
+                        });
+                        Swal.fire({
+                            icon: "success",
+                            title: "Net Availability Fetched",
+                            text: "The net availability was successfully retrieved.",
+                            position: "top-right",
+                            timerProgressBar: true,
+                            timer: 1500,
+                            toast: true,
+                        });
+                        console.log("API Response for getNetAvailable:", response.data); // Log API response
+                        return response.data;
+                        } catch (error: any) {
+                        console.error("Error fetching nets:", error.response || error.message);
+                        Swal.fire({
+                            icon: "error",
+                            title: "Error Fetching Net Availability",
+                            text: error.response?.data || "An error occurred while fetching net availability.",
+                        });
+                        return rejectWithValue(
+                            error.response?.data || "An error occurred while fetching net availability."
+                        );
+                        }
+                    }
+                    );
+
+                    const netSlice = createSlice({
+                    name: "nets",
+                    initialState,
+                    reducers: {},
+                    extraReducers: (builder) => {
+                        builder
+                        .addCase(getNet.pending, (state) => {
+                            state.status = "loading";
+                            state.error = null;
+                        })
+                        .addCase(getNet.fulfilled, (state, action) => {
+                            state.status = "succeeded";
+                            state.nets = action.payload;
+                        })
+                        .addCase(getNet.rejected, (state, action) => {
+                            state.status = "failed";
+                            state.error = action.payload as string;
+                        })
+                        .addCase(getNetAvailable.pending, (state) => {
+                            state.status = "loading";
+                            state.error = null;
+                        })
+                        .addCase(getNetAvailable.fulfilled, (state, action) => {
+                            state.status = "succeeded";
+                            state.netsAvailable = action.payload || [];
+                        })
+                        .addCase(getNetAvailable.rejected, (state, action) => {
+                            state.status = "failed";
+                            state.error = action.payload as string;
+                        });
+                    },
+                    });
+
+                    export const selectNets = (state: RootState) => state.nets.nets;
+                    export const selectNetsAvailable = (state: RootState) => state.nets.netsAvailable;
+                    export const selectNetStatus = (state: RootState) => state.nets.status;
+                    export const selectNetError = (state: RootState) => state.nets.error;
+
+                    export default netSlice.reducer;

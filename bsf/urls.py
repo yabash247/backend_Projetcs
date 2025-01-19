@@ -12,8 +12,8 @@ urlpatterns = [
     path('farms/edit/<int:pk>/', FarmPutViews.as_view(), name='farm-edit-and-delete'),
 
     # Staff Member URLs
-    path('farms/staff-members/add/', StaffMemberListCreateView.as_view(), name='staff-member-list-create'),
-    path('branch/staff-members/', StaffMemberDetailView.as_view(), name='staff-member-detail'),
+    path('branch/staff-members/add/', StaffMemberListCreateView.as_view(), name='staff-member-list-create'),
+    path('staff-members/', StaffMemberDetailView.as_view(), name='staff-member-detail'),
 
     # Net URLs
     path('nets/', NetListCreateView.as_view(), name='net-list-create'),
@@ -48,14 +48,14 @@ urlpatterns += [
     path('ponds/', PondView.as_view(), name='pond-list-create'),  # View all or create
     path('ponds/', PondView.as_view(), name='pond-list'),
     path('ponds/<int:id>/', PondView.as_view(), name='pond-detail-edit'),  # View by ID or edit
-    #path('ponds/<int:id>/', PondView.as_view(), name='pond-detail'),
+    
 ]
 
 
 
-from .views import PondUseStatsView
+from .views import PondUseStatsView, PondUseStats
 urlpatterns += [
     path('ponduse-stats/', PondUseStatsView.as_view(), name='ponduse-stats-list-create'),
     path('ponduse-stats/<int:id>/', PondUseStatsView.as_view(), name='ponduse-stats-detail-edit'),
-    
+    path('pondsTask', PondUseStats.as_view(), name='pond-task'),  
 ]
