@@ -540,7 +540,7 @@ class Media(models.Model):
 
        
 
-class Task(models.Model):
+class Task(models.Model): 
     STATUS_CHOICES = [
         ('active', 'Active'),
         ('appeal', 'Appeal'), #task owner can appeal if a task can't be completed as required due to condictions beyond their control.
