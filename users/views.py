@@ -23,6 +23,7 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         otp_code = random.randint(100000, 999999)
         user.otp_code = otp_code
+        user.email = user.email.lower()
         user.save()
         send_mail(
             'Verify Your Email',
@@ -51,6 +52,7 @@ class PasswordRecoveryView(APIView):
 
     def post(self, request):
         email = request.data.get('email')
+        email = email.lower()
         user = User.objects.filter(email=email).first()
         if user:
             otp_code = random.randint(100000, 999999)
@@ -69,9 +71,11 @@ class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        email = request.data.get('email')
+        email = email.lower()
         otp_code = request.data.get('otp')
         new_password = request.data.get('password')
-        user = User.objects.filter(otp_code=otp_code).first()
+        user = User.objects.filter(otp_code=otp_code, email=email).first()
         if user:
             user.set_password(new_password)
             user.otp_code = None

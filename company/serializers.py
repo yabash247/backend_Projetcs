@@ -147,7 +147,7 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = "__all__"
-        read_only_fields = ['id', 'created_at']
+        #read_only_fields = ['id', 'created_at']
 
 
     
@@ -157,4 +157,4 @@ class ActivityOwnerSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityOwner
         fields = '__all__'
-        read_only_fields = ['id', 'user', 'company']
+        #read_only_fields = ['id', 'user', 'company']

@@ -900,11 +900,35 @@ class TaskListCreateView(generics.ListCreateAPIView):
                     if branch :
                         queryset = queryset.filter(branch=branch)
                 queryset = queryset.filter(company=company)
-                    
-                
-                
-                
-        return queryset
+
+        # Annotate each task with associated_activity
+        tasks_with_activity = []
+        for task in queryset:
+            associated_activity = ActivityOwner.objects.filter(
+                branch=task.branch,
+                activity=task.activity,
+                appName=task.appName,
+                modelName=task.modelName,
+                company=task.company,
+            ).first()
+            task_data = TaskSerializer(task).data  # Serialize task data
+            if associated_activity:
+                task_data["associated_activity"] = ActivityOwnerSerializer(associated_activity).data
+            else:
+                task_data["associated_activity"] = None
+            tasks_with_activity.append(task_data)
+
+        return tasks_with_activity
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Override the list method to return the annotated queryset as a response.
+        """
+        queryset = self.get_queryset()
+        return Response(queryset)
+
+    
+        #return queryset
 
     def perform_create(self, serializer):
         #**** Create Custom Task 

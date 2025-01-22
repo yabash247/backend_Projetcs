@@ -52,6 +52,27 @@ def save_media_files(media_data, company, app_name, model_name, model_id, user):
     return created_media
 
 # This function is used to fetch associated media for a specific model instance.
+def get_associated_model(activity, model_name, app_name, company, branch):
+    """
+    Fetches associated media for the given parameters.
+    
+
+    Returns:
+        QuerySet: A queryset of associated Media objects.
+    """
+    try:
+        media_queryset = ActivityOwner.objects.filter(
+            activity=activity,
+            modelName=model_name,
+            appName=app_name,
+            company=company,
+            branch=branch
+        ).first()
+        return media_queryset
+    except ObjectDoesNotExist:
+        return ActivityOwner.objects.none()  # Return an empty queryset if no media is found
+
+# This function is used to fetch associated media for a specific model instance.
 def get_associated_media(data_id, model_name, app_name, company):
     """
     Fetches associated media for the given parameters.
