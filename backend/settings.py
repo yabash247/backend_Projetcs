@@ -31,7 +31,7 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = []
 
-ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000']
+ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000', 'api.yabash.com']
 
 from corsheaders.defaults import default_headers
 
@@ -62,6 +62,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",  # Vite+React Frontend URL
     "http://localhost:5173",  # Frontend URL
     "http://localhost:5173",
+    "https://yabash.com",
+    "http://yabash.com",
+    "https://www.yabash.com"
 ]
 
 
