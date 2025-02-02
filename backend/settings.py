@@ -64,7 +64,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://yabash.com",
     "http://yabash.com",
-    "https://www.yabash.com"
+    "https://www.yabash.com",
 
 ]
 
