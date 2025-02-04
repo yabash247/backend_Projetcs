@@ -70,6 +70,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.yabash.com",
+    "http://api.yabash.com",
     # Add any other trusted origins here.
 ]
 
