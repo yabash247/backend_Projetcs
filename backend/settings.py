@@ -31,7 +31,7 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = []
 
-ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000', 'http://localhost:2025', 'api.yabash.com', 'yabash.com', 'www.yabash.com']
+ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000', 'api.yabash.com']
 
 from corsheaders.defaults import default_headers
 
