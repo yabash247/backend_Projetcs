@@ -62,6 +62,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",  # Vite+React Frontend URL
     "http://localhost:5173",  # Frontend URL
     "http://localhost:5173",
+    "http://localhost:2025",  # Frontend_main URL
+    "http://localhost:2025",
     "https://yabash.com",
     "http://yabash.com",
     "https://www.yabash.com",
