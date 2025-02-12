@@ -1049,6 +1049,8 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
             lay_index = 0
             while f"net_{lay_index}" in request.data:
 
+
+
                 if common_data["activity"] == "Laying_Start":
                         
                         net = Net.objects.get(
@@ -1134,8 +1136,15 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
         media_index = 0
         while f"media_title_{lay_index}_{media_index}" in request.data:
             file = request.FILES.get(f"media_file_{lay_index}_{media_index}")
-            if not file:
-                raise ValidationError("Media file is required.")
+            media_title = request.FILES.get(f"media_title_{lay_index}_{media_index}")
+
+            if not media_title and not file:
+                print(f"Skipping media upload for layer {lay_index}, media {media_index}")
+                return  # Skip if media is missing
+
+            #if not file:
+                #raise ValidationError("Media file is required.")
+            
 
             try:
                 # Save the file to a persistent location
