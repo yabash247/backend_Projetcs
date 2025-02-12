@@ -59,6 +59,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8081',  # Replace with your frontend URL
     'http://127.0.0.1:8080',   # Example with localhost IP
     'http://localhost:3000',
+    'http://localhost:3001',
     "http://127.0.0.1:5173",  # Vite+React Frontend URL
     "http://localhost:5173",  # Frontend URL
     "http://localhost:5173",

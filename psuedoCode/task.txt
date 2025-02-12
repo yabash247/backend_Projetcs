@@ -1,5 +1,11 @@
 
+            Send notification via sweet alert for any error.
 
+            
+            
+            
+            
+            
             Requirements: 
                 Just like laying_start and netSlice, I need to create similar to handing the start for Incubation, Nursery, GrowOut, prePuppa and Puppa stages.
                 This shall use pondSlice ( need you to create the slice as well).

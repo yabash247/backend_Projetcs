@@ -17,9 +17,6 @@ class Farm(models.Model):
     ]
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="farms")
-    branch = models.ForeignKey(
-        Branch, on_delete=models.CASCADE, related_name="farms", help_text="The branch to which the Net is assigned."
-    )   
     creatorId = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_farms")
     name = models.CharField(max_length=255, help_text="Name of the farm.")
     description = models.TextField(help_text="General description of the farm.")

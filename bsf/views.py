@@ -151,7 +151,7 @@ def validate_company_branch_and_batch(request):
             {"detail": f"Branch '{branch.name}' does not belong to Company '{company.name}'."},
             status=status.HTTP_400_BAD_REQUEST
         )
-    farm = get_object_or_404(Farm, company=company, branch=branch, id=branch.branch_id)
+    farm = get_object_or_404(Farm, company=company, id=branch.branch_id, status="active")
     #print(farm)
 
     # Fetch and validate the batch
@@ -1296,16 +1296,17 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
         if not activity_info:
             #assign task to manager if only one manager exisit in the company's branch else
             #assign task to the director in the company's branch
-            managers = StaffMember.objects.filter(company=self.company, branch=self.branch, role="manager", status="active")
+            managers = StaffMember.objects.filter(company=self.company, branch=self.branch, position="manager", status="active")
             if managers.count() == 1:
                 self.assigned_to = managers.first().user
             else:
-                directors = StaffMember.objects.filter(company=self.company, branch=self.branch, role="director", status="active")
+                directors = StaffMember.objects.filter(company=self.company, branch=self.branch, position="director", status="active")
                 if directors.exists():
                     self.assigned_to = directors.first().user
                 else:
                     raise ValidationError("No suitable manager or director found for task assignment.")
         if activity_info:
+            print(f"Activity Owner: {activity_info.owner}")
             self.assigned_to = activity_info.owner if activity_info.owner else (activity_info.assistant if activity_info.assistant else activity_info.owner.lead)
         else:
             self.assigned_to = None
@@ -1864,7 +1865,7 @@ class PondView(APIView):
         # Fetch and validate the company and farm
         company = get_object_or_404(Company, id=self.company_id, status="active")
         branch = get_object_or_404(Branch, id=self.branch_id, company=company, status="active")
-        farm = get_object_or_404(Farm, id=branch.branch_id, branch=branch, company=company, status="active")
+        farm = get_object_or_404(Farm, id=branch.branch_id, company=company, status="active")
         print(f"Company: {company}, Branch: {branch}, Farm: {farm}")
         
 
@@ -2269,7 +2270,7 @@ class PondUseStats(APIView):
             else:
                 print (self.common_data["batch"])
                 pond_use_stats = PondUseStatsModel.objects.create(
-                    pond=pond,
+                    pond=self.pond,
                     farm=self.farm,
                     company=self.company,
                     batch=self.batch,
@@ -2281,6 +2282,7 @@ class PondUseStats(APIView):
                 )
             
             self.pond_use_stats = pond_use_stats
+            print(f"layer_index: {layer_index}")
             self._handle_layer_media(request, pond_use_stats.id, layer_index)
             self.completeDetails += f"[ - appName=bsf, modelName=PondUseStats, modelId={pond_use_stats.id}, activity={self.activity}, filledOut=start_date, start_weight]"
             layer_index += 1
@@ -2347,6 +2349,7 @@ class PondUseStats(APIView):
             except Exception as e:
                 print(f"Transaction error: {str(e)}")
 
+            print(f"Layer Index: {layer_index}")
             self._handle_layer_media(request, self.dataToSave.id, layer_index)
             self.completeDetails += f"[ - appName=bsf, modelName=PondUseStats, modelId={self.dataToSave.id}, activity={self.activity}, filledOut=end_date, harvest_weight]"
             layer_index += 1
@@ -2365,11 +2368,10 @@ class PondUseStats(APIView):
             media_title = request.data.get(f"media_title_{layer_index}_{media_index}")
             media_file = request.FILES.get(f"media_file_{layer_index}_{media_index}")
             media_comments = request.data.get(f"media_comments_{layer_index}_{media_index}", "")
-
-            if not media_title or not media_file:
-                raise ValidationError(
-                    f"'media_title_{layer_index}_{media_index}' and 'media_file_{layer_index}_{media_index}' are required for media uploads."
-                )
+            
+            if not media_title and not media_file:
+                print(f"Skipping media upload for layer {layer_index}, media {media_index}")
+                return  # Skip if media is missing
 
             Media.objects.create(
                 title=media_title,

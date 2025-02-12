@@ -156,7 +156,9 @@ def has_permission(user, company, app_name, model_name, action, min_level=1, req
         raise PermissionDenied(f"Invalid action '{action}'.")
 
     # Ensure the staff has the required authority level
-    staff_level = StaffLevels.objects.filter(user=user, company=company).values_list('level', flat=True).first()
+    StaffMemberModel = apps.get_model(app_name, 'StaffMember')
+    staff_level = StaffMemberModel.objects.filter(user=user, company=company).values_list('level', flat=True).first()
+    print(  staff_level, required_level, min_level, user)
     if not staff_level or int(staff_level) < required_level or int(staff_level) < min_level:
         raise PermissionDenied(f"Insufficient authority level to perform the '{action}' action.")
 

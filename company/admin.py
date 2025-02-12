@@ -25,7 +25,7 @@ class StaffAdmin(admin.ModelAdmin):
 
 @admin.register(Branch)
 class BranchAdmin(admin.ModelAdmin):
-    list_display = ("name", "company", "branch_id", "status", "appName", "modelName", "created_at")
+    list_display = ("id", "name", "company", "branch_id", "status", "appName", "modelName", "created_at")
     search_fields = ("name", "company__name", "branch_id", "status", "appName", "modelName")
     list_filter = ("company", "status", "created_at", "appName", "modelName")
 
