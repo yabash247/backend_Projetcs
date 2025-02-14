@@ -158,8 +158,10 @@ def validate_company_branch_and_batch(request):
     batch = get_object_or_404(Batch, batch_name=batch_id, farm=farm, company=company)
     #print(batch)
 
+    print(pondusestats)
     # Fetch and validate the pondusestats
     pondusestats = get_object_or_404(PondUseStatsModel, id=pondusestats, batch=batch, company=company, farm=farm)
+    print(pondusestats)
 
     return {"company": company, "branch": branch, "farm":farm, "batch": batch, "status":status, "pondusestats":pondusestats}
 
@@ -770,6 +772,7 @@ class BatchListCreateView(generics.ListCreateAPIView):
         - Batch: {batch.batch_name}
         - Required: [
             - Lay Start: ?
+            - Stage: Laying_Start
             - Stats: Ongoing
             - Media: True for points allocation
             ]
@@ -1079,15 +1082,26 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
                 
                 elif common_data["activity"] == "Laying_End":
 
-                    net_use_id = request.data.get("modelID"); print(f"NetUseID: {net_use_id}")
+                    print("Processing Laying_End activity...")
+
+                    net_use_id = request.data.get("modelID"); 
+                    print(f"NetUseID is: {net_use_id}")
+
                     if not net_use_id:
                         print("NetUseID is required.")
                         raise ValidationError("The 'netUseID' parameter is required.")
-                    net_use_stat = NetUseStats.objects.filter(company=self.company, id=net_use_id, batch=self.batch, farm=self.farm, stats="ongoing").first(); print(f"NetUseStat: {net_use_stat}")
+                    
+                    net_use_stat = NetUseStats.objects.filter(company=self.company, id=net_use_id, batch=self.batch, farm=self.farm, stats="ongoing").first(); 
+                    print(f"NetUseStat is: {net_use_stat}")
+                    
                     if not net_use_stat:
                         raise ValidationError("No ongoing NetUseStats found for the specified ID.")
-                    netInstance = net_use_stat.net; print(f"Net Id: {netInstance.id}")
-                    net = Net.objects.get(company=self.company, id=netInstance.id, branch=self.branch, farm=self.farm, status="active"); print(f"Net: {net.id}")
+                    
+                    netInstance = net_use_stat.net; 
+                    print(f"Net Id is: {netInstance.id}")
+
+                    net = Net.objects.get(company=self.company, id=netInstance.id, branch=self.branch, farm=self.farm, status="active"); 
+                    print(f"Net: {net.id}")
                     
                     self.harvested_eggs = request.data.get( f"harvestWeight_{lay_index}"); print(f"Harvested Eggs: {self.harvested_eggs}")
                     expect_harvest = net.expect_harvest; print(f"Expected Harvest: {expect_harvest}")
@@ -1217,6 +1231,7 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
                 - model_id : {self.model_id}
                 - Required:
                   - Lay end: ?
+                  - Stage: Laying_End
                   - Harvest weight: ?
                   - Stats: completed
                   - Media: True for points allocation
@@ -1723,6 +1738,7 @@ class NetUseStatsRetrieveAllView(APIView):
         return None
 
     def get(self, request, *args, **kwargs):
+        print("Retrieving NetUseStats...")
         # Required query parameters
         query_params = request.query_params
         validation_error = self.validate_query_params(query_params, ["company", "branch", "batch"])
@@ -1734,6 +1750,7 @@ class NetUseStatsRetrieveAllView(APIView):
         batch_name = query_params.get("batch")
         #print(f"Company: {company_id}, Branch: {branch_id}, Batch: {batch_name}")
         net_use_stats_id = query_params.get("modelID")
+        #print(f"NetUseStats ID: {net_use_stats_id}")
 
         # Fetch and validate models
         try:
