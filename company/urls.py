@@ -57,3 +57,34 @@ urlpatterns += [
     path('activity-owners/<int:pk>/', ActivityOwnerDetailView.as_view(), name='activity-owner-detail'),
 ]
 
+
+# Path: backend/company/urls.py
+from .views import RewardsPointsTrackerView
+urlpatterns = [
+    # Retrieve rewards for the logged-in user
+    path('rewards/', RewardsPointsTrackerView.as_view(), name='rewards-list'),
+
+    # Retrieve rewards for a specific user (if permitted)
+    path('rewards/user/<int:user_id>/', RewardsPointsTrackerView.as_view(), name='rewards-by-user'),
+
+    # Retrieve rewards for a specific company (most recent per branch)
+    path('rewards/company/<int:company_id>/', RewardsPointsTrackerView.as_view(), name='rewards-by-company'),
+
+    # Retrieve rewards for a specific branch (most recent)
+    path('rewards/branch/<int:branch_id>/', RewardsPointsTrackerView.as_view(), name='rewards-by-branch'),
+
+    # Retrieve rewards for the logged-in user for a specific company (all most recent per company branch)
+    path('rewards/company/<int:company_id>/most_recent/', RewardsPointsTrackerView.as_view(), name='rewards-most-recent-company'),
+
+    # Retrieve rewards for the logged-in user for a specific branch in a company
+    path('rewards/company/<int:company_id>/branch/<int:branch_id>/', RewardsPointsTrackerView.as_view(), name='rewards-by-company-branch'),
+]
+
+
+
+from .views import UserMostRecentRewardsView
+
+urlpatterns = [
+    # Retrieve most recent rewards for the logged-in user per company branch
+    path('rewards/my-recent/', UserMostRecentRewardsView.as_view(), name='my-most-recent-rewards'),
+]

@@ -158,3 +158,69 @@ class ActivityOwnerSerializer(serializers.ModelSerializer):
         model = ActivityOwner
         fields = '__all__'
         #read_only_fields = ['id', 'user', 'company']
+
+
+from .models import RewardsPointsTracker
+class RewardsPointsTrackerSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    company_name = serializers.SerializerMethodField()
+    branch_name = serializers.SerializerMethodField()
+    task_title = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RewardsPointsTracker
+        fields = [
+            'id',
+            'user',
+            'user_name',
+            'company',
+            'company_name',
+            'branch',
+            'branch_name',
+            'task',
+            'task_title',
+            'transaction_type',
+            'credit',
+            'blocked',
+            'credit_date',
+            'point_conversion_rate',
+            'debit',
+            'debit_date',
+            'debit_requested_by',
+            'debit_approved_by',
+            'comments',
+            'points_available',
+            'points_pending',
+            'updated_at',
+        ]
+        read_only_fields = ['points_available', 'points_pending', 'updated_at']
+
+    def get_user_name(self, obj):
+        """Retrieve the user's full name or username."""
+        return obj.user.get_full_name() or obj.user.username
+
+    def get_company_name(self, obj):
+        """Retrieve the company name."""
+        return obj.company.name if obj.company else None
+
+    def get_branch_name(self, obj):
+        """Retrieve the branch name."""
+        return obj.branch.name if obj.branch else None
+
+    def get_task_title(self, obj):
+        """Retrieve the task title."""
+        return obj.task.title if obj.task else None
+
+    def validate(self, data):
+        """
+        Custom validation for the rewards points transaction.
+        Ensures that credits, debits, and blocked points are non-negative.
+        """
+        if data.get('credit', 0) < 0:
+            raise serializers.ValidationError({"credit": "Credit points cannot be negative."})
+        if data.get('debit', 0) < 0:
+            raise serializers.ValidationError({"debit": "Debit points cannot be negative."})
+        if data.get('blocked', 0) < 0:
+            raise serializers.ValidationError({"blocked": "Blocked points cannot be negative."})
+        return data
+

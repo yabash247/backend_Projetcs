@@ -766,7 +766,7 @@ class BatchListCreateView(generics.ListCreateAPIView):
             assistant = company_owner.creator  # Fallback to company creator
 
         # Create a Task for Net Use Start Info
-        task_title = f"Need to add Net Use Start Info for Batch: {batch.batch_name}"
+        task_title = f"Add Net Details Used For Batch: {batch.batch_name}'s,  Eggs Laying"
         task_description = f"""
         Task Details:
         - Batch: {batch.batch_name}
@@ -1261,7 +1261,7 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
             net = NetUseStats.objects.get(id=request.data.get("modelID"), company=self.company, farm=self.farm); print(f"Net: {net.net}")
             next_task_due_date = now()
             next_activity = "Incubation"
-            title=f"Need to Incubate the {self.harvested_eggs}grams of eggs harvested from {net.net.name}: for batch: {common_data['batch']}",
+            title=f"Need to Incubate the {self.harvested_eggs}grams of eggs harvested from Net{net.net.name}: for batch: {common_data['batch']}",
             description=f"""
                 Task Details:
                 - Batch: {common_data['batch']}
@@ -2111,6 +2111,8 @@ class PondUseStatsView(APIView):
         ]
 
         return Response(results, status=status.HTTP_200_OK)
+    
+
     def post(self, request, *args, **kwargs):
         """
         Create a new PondUseStats.
@@ -2260,7 +2262,9 @@ class PondUseStats(APIView):
         
         # If no valid stage, return a Response
         return Response({"error": "Invalid 'stage' parameter."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
+    '''
+           
     def _start_activity(self, request):
         print("""********Handle the start of an activity.********""")
         layer_index = 0
@@ -2311,14 +2315,76 @@ class PondUseStats(APIView):
             print(f"layer_index: {layer_index}")
             self._handle_layer_media(request, pond_use_stats.id, layer_index)
             self.completeDetails += f"[ - appName=bsf, modelName=PondUseStats, modelId={pond_use_stats.id}, activity={self.activity}, filledOut=start_date, start_weight]"
+            
+            self._complete_task_and_create_next(request)
+
             layer_index += 1
 
-        self._complete_task_and_create_next(request)
+        
     
         return Response(
             {"detail": f"{self.activity} activity started successfully for batch:{self.batch.batch_name}."},
             status=status.HTTP_201_CREATED,
         )
+    
+    '''
+    def _start_activity(self, request):
+        print("********Handle the start of an activity.********")
+        layer_index = 0
+
+        while f"pond_{layer_index}" in request.data:
+            pond_id = request.data.get(f"pond_{layer_index}")
+            start_date = request.data.get(f"startDate_{layer_index}")
+            start_weight = request.data.get(f"startWeight_{layer_index}")
+
+            if not pond_id or not start_date or not start_weight:
+                logging.warning(f"Skipping missing pond entry at index {layer_index}")
+                layer_index += 1
+                continue  # Skip this iteration
+
+            pond = get_object_or_404(Pond, id=pond_id, farm=self.farm, company=self.company, status="Active")
+
+            if not pond:
+                raise ValidationError(f"Pond '{pond_id}' does not exist or is not active.")
+
+            exisitngPondUseStats = PondUseStatsModel.objects.filter(pond=pond, status="Ongoing").first()
+
+            if exisitngPondUseStats is not None:
+                if exisitngPondUseStats.batch == self.batch and exisitngPondUseStats.company == self.company and exisitngPondUseStats.farm == self.farm:
+                    if self.activity in ["Incubation", "Nursery"] and self.endOrStart == "Start":
+                        exisitngPondUseStats.harvest_stage = self.activity
+                        exisitngPondUseStats.start_weight += start_weight
+                        exisitngPondUseStats.comments += f"\n{request.user} updated data by adding {start_weight} from net for batch {self.batch.batch_name} on {now()}"
+                        exisitngPondUseStats.save()
+                    raise ValidationError(f"Pond '{pond.pond_name}' already has an ongoing activity for the same batch, company, and farm.")
+
+                raise ValidationError(f"Pond '{pond.pond_name}' already has an ongoing activity.")
+
+            # Create new PondUseStats
+            self.pond_use_stats = PondUseStatsModel.objects.create(
+                pond=pond,
+                farm=self.farm,
+                company=self.company,
+                batch=self.batch,
+                start_date=start_date,
+                start_weight=start_weight,
+                harvest_stage=self.activity,
+                status="Ongoing",
+                created_by=request.user,
+            )
+
+            self._handle_layer_media(request, self.pond_use_stats.id, layer_index)
+            self.completeDetails += f"[ - appName=bsf, modelName=PondUseStats, modelId={self.pond_use_stats.id}, activity={self.activity}, filledOut=start_date, start_weight]"
+
+            # Call task completion and next task creation
+            self._complete_task_and_create_next(request)
+            layer_index += 1
+
+        return Response(
+            {"detail": f"{self.activity} activity started successfully for batch: {self.batch.batch_name}."},
+            status=status.HTTP_201_CREATED,
+        )
+
 
     def _end_activity(self, request):
         """Handle the end of an activity with multiple layers and media."""
@@ -2386,7 +2452,6 @@ class PondUseStats(APIView):
             {"detail": f"{self.activity} activity ended successfully for {layer_index} layers."},
             status=status.HTTP_200_OK,)
 
-    
     def _handle_layer_media(self, request, pond_use_stats_id, layer_index):
         """Handle media uploads for a specific layer."""
         media_index = 0
@@ -2418,19 +2483,22 @@ class PondUseStats(APIView):
         """Complete the current task and create the next task."""
         task_id = request.data.get("taskId")
         task_title = request.data.get("taskTitle")
+        #print(f"Task ID: {task_id}, Task Title: {task_title}")
         if task_id and task_title:
             task = Task.objects.filter(
                 id=task_id, title=task_title, company=self.company, activity=self.activity
             ).first()
+            #print(f"Task: {task}")
             if task:
                 task.status = "pending"
                 task.completed_date = now()
                 task.completeDetails = self.completeDetails
                 task.completed_by = request.user
                 task.save()
-
+                print(f"Task: {task}")
         return self._create_next_task()
-
+    
+    '''
     def _create_next_task(self):
         """Create the next task in the workflow."""
         #print("********Create the next task in the workflow.********")
@@ -2523,7 +2591,97 @@ class PondUseStats(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+    '''
     
+    def _create_next_task(self):
+        """Create the next task in the workflow."""
+        if not hasattr(self, 'pond_use_stats'):
+            logging.warning("Skipping next task creation: pond_use_stats not found.")
+            return Response(
+                {"detail": "Cannot create the next task. Missing pond data."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        activity_order = ["Incubation", "Nursery", "Growout", "PrePuppa", "Puppa"]
+        current_activity = self.activity
+
+        description = ""
+
+        if self.endOrStart == "Start":
+            next_stage = "End"
+            next_activity = current_activity
+            description = f"""
+                Task Details:
+                - Batch: {self.batch.batch_name}
+                - model_id : {self.pond_use_stats.id}
+                - Pond: {self.pond_use_stats.pond.pond_name}
+                - Activity: {next_activity}
+                - Stage: {next_stage}
+                - Required:
+                    - Harvest Date
+                    - Harvest Weight
+                    - Stats: completed
+                    - Media: True for points allocation
+                """
+        elif self.endOrStart == "End":
+            if not hasattr(self, 'dataToSave'):
+                return Response(
+                    {"detail": "Cannot create the next task. Missing pond or pond use stats."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            savedPond = self.dataToSave.pond
+            try:
+                next_activity = activity_order[activity_order.index(current_activity) + 1]
+                next_stage = "Start"
+                description = f"""
+                Task Details:
+                - Batch: {self.batch.batch_name}
+                - Pond_use_stats: {self.dataToSave.id}
+                - Pond: {savedPond.pond_name}
+                - Activity: {next_activity}
+                - Stage: {next_stage}
+                - Required:
+                    - Set Date
+                    - Start Weight
+                    - Pond
+                    - Stats: ongoing
+                    - Media: True for points allocation
+                """
+            except (ValueError, IndexError):
+                return Response(
+                    {"detail": "No next activity available. Workflow completed."},
+                    status=status.HTTP_200_OK,
+                )
+
+        # Fetch duration settings
+        duration_setting = DurationSettings.objects.filter(company=self.company, farm=self.farm).first()
+        task_due_date = now() + timedelta(days=getattr(duration_setting, f"{next_activity.lower()}_duration", 3))
+
+        # Fetch the activity owner for the next task
+        activity_owner = ActivityOwner.objects.filter(
+            company=self.company, branch=self.branch, activity=next_activity, status="active"
+        ).first()
+
+        # Create the next task in the workflow
+        Task.objects.create(
+            company=self.company,
+            branch=self.branch,
+            title=f"{next_stage} - {next_activity} activity for batch {self.batch.batch_name}",
+            description=description,
+            due_date=task_due_date,
+            assigned_to=activity_owner.owner if activity_owner else None,
+            assistant=activity_owner.assistant if activity_owner else None,
+            appName="bsf",
+            modelName="PondUseStats",
+            activity=next_activity,
+            status="active",
+        )
+
+        return Response(
+            {"detail": f"Next task created for {next_activity} activity for batch: {self.batch.batch_name}."},
+            status=status.HTTP_201_CREATED,
+        )
+
                     
 

@@ -6,6 +6,7 @@ from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 from .models import Company, Authority, Staff, StaffLevels, Branch, Media, Task
+from django.contrib.auth.models import User
 from .serializers import ActivityOwnerSerializer, CompanySerializer, AdminCompanySerializer, AuthoritySerializer, StaffSerializer, StaffLevelsSerializer, MediaSerializer, TaskSerializer, BranchSerializer
 from django.shortcuts import get_object_or_404
 from company.utils import check_user_exists, get_associated_media, PointsRewardSystem
@@ -1061,3 +1062,143 @@ class Recurance(APIView):
         return Response({"message": "Reoccurring tasks created successfully."})
     
 
+
+# *******  Views for RewardsPointsTracker Model ***********
+from django.db.models import Max
+from .models import RewardsPointsTracker
+from .serializers import RewardsPointsTrackerSerializer
+
+class RewardsPointsTrackerView(generics.ListAPIView):
+    """
+    API View to retrieve reward points with enhanced validation and warnings.
+    """
+    serializer_class = RewardsPointsTrackerSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        company_id = self.request.query_params.get("company")
+        branch_id = self.request.query_params.get("branch")
+        user_id = self.request.query_params.get("user")
+        most_recent = self.request.query_params.get("most_recent", "false").lower() == "true"
+
+        print(company_id)
+
+        queryset = RewardsPointsTracker.objects.all()
+
+        # **1. Retrieve rewards for the logged-in user**
+        if not company_id and not branch_id and not user_id:
+            return queryset.filter(user=user)
+
+        # **2. Retrieve rewards for a specific user (if the logged-in user has permission)**
+        if user_id:
+            target_user = User.objects.filter(id=user_id).first()
+            if not target_user:
+                raise NotFound({"error": "User not found."})
+
+            staff_record = Staff.objects.filter(user=target_user, company__in=user.staff.values_list('company', flat=True)).first()
+            if not staff_record:
+                raise PermissionDenied({"error": "User is not in a company you have access to."})
+
+            if not has_permission(user, staff_record.company, app_name="rewards", model_name="RewardsPointsTracker", action="view"):
+                raise PermissionDenied({"error": "You do not have permission to view this user's rewards."})
+
+            queryset = queryset.filter(user=target_user)
+
+        # **3. Retrieve rewards for logged-in user's specific company (most recent per branch)**
+        if company_id:
+            company = Company.objects.filter(id=company_id).first()
+            print(company)
+            if not company:
+                raise NotFound({"error": "Company not found."})
+
+            if not has_permission(user, company, app_name="rewards", model_name="RewardsPointsTracker", action="view"):
+                raise PermissionDenied({"error": "You do not have permission to view rewards for this company."})
+
+            queryset = queryset.filter(company=company)
+
+            if most_recent:
+                latest_rewards_per_branch = queryset.values('branch').annotate(latest_credit=Max('credit_date'))
+                queryset = queryset.filter(credit_date__in=[entry["latest_credit"] for entry in latest_rewards_per_branch])
+
+        # **4. Retrieve rewards for a specific branch (most recent)**
+        if branch_id:
+            branch = Branch.objects.filter(id=branch_id).first()
+            if not branch:
+                raise NotFound({"error": "Branch not found."})
+
+            if not has_permission(user, branch.company, app_name="rewards", model_name="RewardsPointsTracker", action="view"):
+                raise PermissionDenied({"error": "You do not have permission to view rewards for this branch."})
+
+            queryset = queryset.filter(branch=branch)
+
+            if most_recent:
+                latest_rewards = queryset.aggregate(latest_credit=Max('credit_date'))
+                queryset = queryset.filter(credit_date=latest_rewards["latest_credit"])
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """
+        Custom response format to include filtering information and validation errors.
+        """
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+
+            return Response({
+                "count": queryset.count(),
+                "results": serializer.data
+            })
+
+        except NotFound as e:
+            return Response({"error": str(e)}, status=404)
+
+        except PermissionDenied as e:
+            return Response({"error": str(e)}, status=403)
+
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
+
+        except Exception as e:
+            return Response({"error": "An unexpected error occurred.", "details": str(e)}, status=500)
+
+
+
+class UserMostRecentRewardsView(generics.ListAPIView):
+    """
+    API View to retrieve the most recent rewards per company branch for the logged-in user.
+    """
+    serializer_class = RewardsPointsTrackerSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Get all rewards for the logged-in user
+        queryset = RewardsPointsTracker.objects.filter(user=user)
+
+        # Get the most recent rewards per company branch
+        latest_rewards_per_branch = queryset.values('company', 'branch').annotate(
+            latest_credit=Max('credit_date')
+        )
+
+        # Filter the queryset to include only the most recent rewards for each branch
+        most_recent_rewards = queryset.filter(
+            credit_date__in=[entry["latest_credit"] for entry in latest_rewards_per_branch]
+        )
+
+        return most_recent_rewards
+
+    def list(self, request, *args, **kwargs):
+        """
+        Custom response format to include the total count of rewards retrieved.
+        """
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return Response({
+            "user": request.user.username,
+            "total_rewards": queryset.count(),
+            "most_recent_rewards_per_branch": serializer.data
+        })
