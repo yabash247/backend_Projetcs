@@ -57,7 +57,7 @@ urlpatterns += [
     path('activity-owners/<int:pk>/', ActivityOwnerDetailView.as_view(), name='activity-owner-detail'),
 ]
 
-
+'''
 # Path: backend/company/urls.py
 from .views import RewardsPointsTrackerView
 urlpatterns = [
@@ -88,3 +88,4 @@ urlpatterns = [
     # Retrieve most recent rewards for the logged-in user per company branch
     path('rewards/my-recent/', UserMostRecentRewardsView.as_view(), name='my-most-recent-rewards'),
 ]
+'''

@@ -159,6 +159,7 @@ class ActivityOwnerSerializer(serializers.ModelSerializer):
         fields = '__all__'
         #read_only_fields = ['id', 'user', 'company']
 
+'''
 
 from .models import RewardsPointsTracker
 class RewardsPointsTrackerSerializer(serializers.ModelSerializer):
@@ -224,3 +225,4 @@ class RewardsPointsTrackerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"blocked": "Blocked points cannot be negative."})
         return data
 
+'''

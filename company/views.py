@@ -1062,7 +1062,7 @@ class Recurance(APIView):
         return Response({"message": "Reoccurring tasks created successfully."})
     
 
-
+'''
 # *******  Views for RewardsPointsTracker Model ***********
 from django.db.models import Max
 from .models import RewardsPointsTracker
@@ -1202,3 +1202,4 @@ class UserMostRecentRewardsView(generics.ListAPIView):
             "total_rewards": queryset.count(),
             "most_recent_rewards_per_branch": serializer.data
         })
+'''
