@@ -9,5 +9,6 @@ urlpatterns = [
     path('api/company/', include('company.urls')),
     path('accounts/', include('allauth.urls')),
     path('api/bsf/', include('bsf.urls')),
+    path('api/cff/', include('catFishFarm.urls')),
     #path('account/', include('two_factor.urls', 'two_factor')),  # 2FA routes
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

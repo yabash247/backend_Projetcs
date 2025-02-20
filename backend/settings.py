@@ -101,6 +101,7 @@ INSTALLED_APPS = [
     'users',
     'company',
     'bsf',
+    'catFishFarm',
 
     # Third Party
     'rest_framework',

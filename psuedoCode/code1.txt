@@ -1,53 +1,15 @@
 
 
-create manager level layout.
-    get use level and position. 
-    create a function I can add to a comopnet or part of a component to determine the min level or position that can have access to it.
+FUNCTION get_queryset():
+    # Validate company and farm from the request
+    company, farm = validate_company_and_farm(request)
+
+    # Check if the user has permission to view staff members in this farm
+    IF NOT has_permission(user, company, "catFishFarm", "StaffMember", "view"):
+        RAISE PermissionDenied("User does not have permission to view staff members.")
+
+    # Query staff members linked to the given company and farm
+    SET queryset TO StaffMember.objects.filter(company=company, farm=farm)
 
 
-create:  
-    class Contact(models.Model):
-        STATUS_CHOICES = [
-            ('active', 'Active'),
-            ('inactive', 'Inactive'),
-            ('pending', 'Pending'),
-            ('closed', 'Closed'),
-        ]
-
-        company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="company")
-        branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="branch")
-        name = models.CharField(max_length=255, help_text="Name of the Sector.")
-        description = models.TextField(help_text="General description of the farm.")
-        established_date = models.DateField(help_text="Date the Sector was established.", null=True, blank=True)
-        location = models.CharField(max_length=255, help_text="Location of the Sector.")
-        contact_number = models.CharField(max_length=20, help_text="Contact number for the Sector.")
-        email = models.EmailField(help_text="Email address for inquiries.")
-        website = models.URLField(blank=True, null=True, help_text="Website URL of the Sector.")
-        created_at = models.DateTimeField(auto_now_add=True)
-        status = models.CharField(
-            max_length=10, 
-            choices=STATUS_CHOICES, 
-            default='inactive', 
-            help_text="Current operational status of this company's bsf sectors."
-        )
-
-        def clean(self):
-            # Ensure unique farm name within the same company and location
-            if Farm.objects.filter(name=self.name, company=self.company, location=self.location).exists():
-                raise ValidationError(f"A Sector with the name '{self.name}' already exists in this company and location.")
-
-            # Warn about closely matching names
-            sector_in_company = Sector.objects.filter(company=self.company)
-            for sector in sector_in_company:
-                similarity = SequenceMatcher(None, self.name.lower(), sector.name.lower()).ratio()
-                if similarity > 0.8:  # Threshold for similarity warning
-                    raise ValidationError(
-                        f"The name '{self.name}' is very similar to an existing farm: '{sector.name}'."
-                    )
-
-        def save(self, *args, **kwargs):
-            self.full_clean()  # Trigger the clean method before saving
-            super().save(*args, **kwargs)
-
-        def __str__(self):
-            return f"{self.name} - {self.company.name} ({self.status})"
+    RETURN get_staff_with_associated_data(queryset, company, farm)
