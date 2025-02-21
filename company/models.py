@@ -232,7 +232,8 @@ class Staff(models.Model):
     )
 
     def __str__(self):
-        return f"Staff: {self.user} at {self.company}"
+        return f"Staff: {self.user.get_full_name() or self.user.email} at {self.company}"
+
 
     class Meta:
         verbose_name = "Staff"

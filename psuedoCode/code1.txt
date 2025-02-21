@@ -1,15 +1,8 @@
 
 
-FUNCTION get_queryset():
-    # Validate company and farm from the request
-    company, farm = validate_company_and_farm(request)
+Do we need role-based permissions? (e.g., only managers can assign staff) i think staff level those that in the backend, what do you have in mind?
+Should staff assignments update in real time, or only on page refresh?update in real time
+Do you want staff rankings included in the Staff Assignment Table? yes 
+Would you like any additional features for staff creation? any suggestions.
 
-    # Check if the user has permission to view staff members in this farm
-    IF NOT has_permission(user, company, "catFishFarm", "StaffMember", "view"):
-        RAISE PermissionDenied("User does not have permission to view staff members.")
-
-    # Query staff members linked to the given company and farm
-    SET queryset TO StaffMember.objects.filter(company=company, farm=farm)
-
-
-    RETURN get_staff_with_associated_data(queryset, company, farm)
+How about the slice, will that be included in the catFishFarm Slice or seperated?

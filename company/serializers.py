@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Company, Authority, Staff, StaffLevels, Branch, Task, Media
 from django.apps import apps
 from django.db.models import Q
+from users.models import User  # Import the User model
 
 class BranchSerializer(serializers.ModelSerializer):
     associated_data = serializers.SerializerMethodField()
@@ -46,16 +47,30 @@ class StaffLevelsSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'user ', 'company ']
 
-    
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    Serializer to return full user details instead of just user ID.
+    """
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "first_name", "last_name"]
 
 class StaffSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the Staff model.
+    """
+    user = UserSerializer(read_only=True)  # ✅ Returns full user details instead of just an ID
+    added_by = UserSerializer(read_only=True)
+    approved_by = UserSerializer(read_only=True)
+
     class Meta:
         model = Staff
         fields = [
-            'id', 'user', 'company', 'work_phone', 'work_email',
-            'date_created', 'joined_company_date', 'comments', 'added_by', 'approved_by'
+            "id", "user", "company", "work_phone", "work_email", "date_created",
+            "joined_company_date", "comments", "added_by", "approved_by"
         ]
-        read_only_fields = ['id', 'date_created', 'added_by']
+
 
 class AuthoritySerializer(serializers.ModelSerializer):
     class Meta:

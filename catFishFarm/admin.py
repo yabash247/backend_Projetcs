@@ -1,11 +1,45 @@
 from django.contrib import admin
-from .models import Farm, Pond, Batch, BatchMovement, StockingHistory, DestockingHistory
+from .models import Farm, Pond, Batch, BatchMovement, StockingHistory, DestockingHistory, StaffMember
 
 @admin.register(Farm)
 class FarmAdmin(admin.ModelAdmin):
     list_display = ('name', 'company', 'location', 'created_by', 'created_at')
     search_fields = ('name', 'company__name', 'location')
     list_filter = ('company', 'created_at')
+
+
+
+@admin.register(StaffMember)
+class StaffMemberAdmin(admin.ModelAdmin):
+    """
+    Admin panel configuration for StaffMember model.
+    """
+    list_display = ("user", "company", "farm", "position", "status", "level", "assigned_at")
+    list_filter = ("company", "farm", "status", "level")
+    search_fields = ("user__username", "user__email", "company__name", "farm__name", "position")
+    ordering = ("company", "farm", "level")
+    readonly_fields = ("assigned_at", "created_by")
+    
+    fieldsets = (
+        ("User Details", {
+            "fields": ("user", "company", "farm", "leader")
+        }),
+        ("Staff Information", {
+            "fields": ("position", "status", "level")
+        }),
+        ("System Details", {
+            "fields": ("assigned_at", "created_by")
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        """
+        Auto-assign the current admin user as `created_by` when adding a new staff member.
+        """
+        if not obj.created_by:
+            obj.created_by = request.user
+        obj.save()
+
 
 @admin.register(Pond)
 class PondAdmin(admin.ModelAdmin):
@@ -36,3 +70,5 @@ class DestockingHistoryAdmin(admin.ModelAdmin):
     list_display = ('batch', 'destocked_at', 'pond', 'quantity', 'weight', 'reason')
     search_fields = ('batch__name', 'pond__name')
     list_filter = ('destocked_at', 'reason')
+
+

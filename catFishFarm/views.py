@@ -165,11 +165,11 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Error: You do not have permission to view staff members for this farm.")
 
         # ✅ Query staff members linked to the given company and farm
-        queryset = StaffMember.objects.filter(company=company, farm=farm)
-
+        queryset = StaffMember.objects.filter(company=company, farm=farm).select_related("user", "company")
+        
         return queryset
 
-
+        
     def perform_create(self, serializer):
         """
         Validate and create a new staff member after ensuring company and farm association.

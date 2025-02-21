@@ -57,6 +57,7 @@ class StaffMemberSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source="user.username", read_only=True)
     leader_username = serializers.CharField(source="leader.username", read_only=True)
 
+
     class Meta:
         model = StaffMember
         fields = [

@@ -16,7 +16,7 @@ from django.utils.timezone import now
 from datetime import timedelta
 from .models import ActivityOwner
 from django.core.mail import send_mail
-from django.db.models import Q
+from django.db.models import Q, F
 
 
 # Configure logging
@@ -357,6 +357,8 @@ class DeleteCompanyView(generics.DestroyAPIView):
 
 # *******  Views for Staff Model ***********
 
+
+
 class ViewStaffView(generics.ListAPIView):
     serializer_class = StaffSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -365,41 +367,34 @@ class ViewStaffView(generics.ListAPIView):
         """
         Filter staff by company or retrieve a specific staff member.
         """
-        company_id = self.kwargs.get('company_id')  # Get company ID from the URL
-        staff_id = self.kwargs.get('staff_id')  # Get optional staff ID from the URL
+        company_id = self.kwargs.get('company_id')  # Get company ID from URL
+        staff_id = self.kwargs.get('staff_id')  # Get optional staff ID from URL
 
-        # Ensure the company exists
-        try:
-            company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
-            raise PermissionDenied("The specified company does not exist.")
+        # ✅ Ensure the company exists
+        company = get_object_or_404(Company, id=company_id)
 
-        # Check if the user has permission to view staff for this company
-        model_name = 'staff'
-        action = 'view'
-
+        # ✅ Check if user has permission
         if not has_permission(
                 user=self.request.user,
                 company=company,
                 app_name="company",
                 model_name="Staff",
                 action="view"
-            ):raise PermissionDenied("You do not have permission to view staff for this company.")
+            ):
+            raise PermissionDenied("You do not have permission to view staff for this company.")
 
-        # If a staff ID is provided, filter to a specific staff member
+        # ✅ If a staff ID is provided, return a specific staff member with annotation
         if staff_id:
-            try:
-                staff = Staff.objects.get(id=staff_id, company=company)
-            except Staff.DoesNotExist:
-                raise PermissionDenied("The specified staff member does not exist in this company.")
-            rewards_data = staff.get_max_reward_points_and_value()
-            #print(rewards_data["max_points"]) 
-            #print(rewards_data["currency_symbol"])
-            #print(rewards_data["value_in_currency"])
-            return Staff.objects.filter(id=staff.id)
+            return Staff.objects.filter(id=staff_id, company=company).select_related("user")
 
-        # Otherwise, return all staff members for the specified company
-        return Staff.objects.filter(company=company)
+            # ✅ Fetch reward details (optional)
+            rewards_data = staff.get_max_reward_points_and_value()
+            #print(f"Max Points: {rewards_data['max_points']}, Currency: {rewards_data['currency_symbol']}, Value: {rewards_data['value_in_currency']}")
+
+            
+        # ✅ Otherwise, return all staff members for the company with annotations
+        return Staff.objects.filter(company=company).select_related("user")
+
 
 class AddStaffView(generics.CreateAPIView):
     serializer_class = StaffSerializer
