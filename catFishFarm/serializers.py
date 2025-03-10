@@ -79,6 +79,25 @@ class PondSerializer(serializers.ModelSerializer):  # Handles Pond serialization
         fields = '__all__'
 
 
+from .models import PondMaintenanceLog
+class PondMaintenanceLogSerializer(serializers.ModelSerializer):
+    pond_name = serializers.CharField(source="pond.name", read_only=True)
+    performed_by_name = serializers.CharField(source="performed_by.username", read_only=True)
+
+    class Meta:
+        model = PondMaintenanceLog
+        fields = [
+            'id', 'pond', 'pond_name', 'date', 'maintenance_type', 
+            'description', 'performed_by', 'performed_by_name'
+        ]
+        read_only_fields = ['date', 'performed_by']
+    
+    def create(self, validated_data):
+        request = self.context['request']
+        validated_data['performed_by'] = request.user  # Auto-assign the user
+        return super().create(validated_data)
+
+
 class BatchSerializer(serializers.ModelSerializer):  # Handles Batch serialization
     class Meta:
         model = Batch

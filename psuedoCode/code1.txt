@@ -1,8 +1,671 @@
+📌 Understanding Your Task System and WhatsApp Integration
+Your task system is complex because:
+
+Tasks exist in the company model, not directly in bsf/net-use-stats/.
+TaskList submits filled-out forms to bsf/net-use-stats/, which:
+Processes data.
+Saves information in different models.
+To properly integrate WhatsApp, I need to understand:
+
+How TaskList.tsx sends data to bsf/net-use-stats/ (API structure).
+Which models receive the data (NetUseStats, Task, etc.).
+How tasks are assigned & updated (task workflows).
+
+📌 What We Need to Make This Work
+Identify where tasks are stored and linked:
+
+Is there a Task model that links to NetUseStats? yes
+Where do assigned tasks get stored? in Task model found in company app
+What field determines if a task is "completed"? status  field in task model 
 
 
-Do we need role-based permissions? (e.g., only managers can assign staff) i think staff level those that in the backend, what do you have in mind?
-Should staff assignments update in real time, or only on page refresh?update in real time
-Do you want staff rankings included in the Staff Assignment Table? yes 
-Would you like any additional features for staff creation? any suggestions.
 
-How about the slice, will that be included in the catFishFarm Slice or seperated?
+Modify TaskList.tsx:
+
+Ensure it sends WhatsApp task completion correctly.
+If WhatsApp is used, it should send the correct payload.
+Modify bsf/net-use-stats/ View:
+
+Detect if a task was submitted via WhatsApp.
+Link WhatsApp-submitted tasks to the correct model.
+📌 Next Steps
+Please confirm: Where is the Task model located? in company app
+
+Does Task exist in company.models, bsf.models, or another file? company.models
+Can you provide the Task model structure? Yes 
+
+class Task(models.Model): 
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('appeal', 'Appeal'), #task owner can appeal if a task can't be completed as required due to condictions beyond their control.
+        ('pending', 'Pending'), # For tasks awaiting approval   
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+        ('rewardGranted', 'Reward Granted'),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="tasks")
+    branch = models.ForeignKey('Branch', on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks")
+    farm = models.CharField(max_length=50, null=True, blank=True,)
+    appName = models.CharField(max_length=50)
+    modelName = models.CharField(max_length=50, blank=True, null=True)
+    dataQuantity = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of times modelName has to be filled out per task completion."
+    )
+    activity = models.CharField(max_length=50, blank=True, null=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    due_date = models.DateTimeField()
+    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="assigned_tasks")
+    assistant = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assistant")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    completed_date = models.DateTimeField(null=True, blank=True)
+    completeDetails = models.TextField(blank=True, null=True)
+    completed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="completed_by")
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_tasks")
+    approved_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    appealReason = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.company.name})"
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+How does TaskList.tsx send forms to bsf/net-use-stats/? Yes, which then processes it
+
+
+If you can share the relevant API call in TaskList.tsx, I can adjust it for WhatsApp.
+
+class NetUseStatsListCreateView(generics.ListCreateAPIView):
+    """
+    View to list all NetUseStats, create a new entry, and upload media files.
+    """
+    serializer_class = NetUseStatsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        try:
+
+            # Check if the request is from WhatsApp
+            if "From" in request.data and "Body" in request.data:
+                print("Processing  data sent from whatsapp.....")
+                return self.process_whatsapp_submission(request)
+            
+
+            # Extract and validate common data
+            print("Extracting and validating common data...")
+            common_data = self._extract_and_validate_common_data(request)
+            if isinstance(common_data, Response):  # Handle validation errors
+                return common_data
+            
+            self.company = Company.objects.get(id=common_data["company"], status="active")
+            self.branch = Branch.objects.get(id=common_data["branch"], company=self.company, status="active")
+            #print(f"Branch: {self.branch}")
+            self.farm = Farm.objects.get(id=self.branch.branch_id, company=self.company, status="active")
+            #print(f"farm: {self.farm}")
+            self.batch = Batch.objects.get(batch_name=common_data["batch"], company=self.company, farm=self.farm)
+
+            # Initialize completeDetails
+            self.completeDetails = ""
+
+            # Process layStarts and associated media
+            print("Processing layStarts and media...")
+            self._process_lay_starts_and_media(request, common_data)
+
+            # Update task and create the next task
+            print("Updating task and creating next task...")
+            self._update_task_and_create_next_step(request, common_data)
+
+            print("Activity processed successfully.")
+            return Response(
+                {"detail": f"{common_data['activity']} activity processed successfully."},
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception as e:
+            # Log and return the error message
+            logging.error(f"Error during creation: {str(e)}")
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _extract_and_validate_common_data(self, request):
+        """
+        Extracts and validates common data from the request.
+        """
+        required_fields = [
+            "taskId",
+            "taskTitle",
+            #"createdDate",
+            "appName",
+            "modelName",
+            "activity",
+            "batch",
+            "branch",
+            "company",
+        ]
+        data = {field: request.data.get(field) for field in required_fields}
+
+        # Ensure all required fields are provided
+        missing_fields = [field for field, value in data.items() if not value]
+        if missing_fields:
+            logging.warning(f"Missing fields: {missing_fields}")
+            return Response(
+                {"error": f"Missing required fields: {', '.join(missing_fields)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return data
+
+    def _process_lay_starts_and_media(self, request, common_data):
+        """
+        Processes activity and associated media files from the request.
+        """
+        try:
+
+            lay_index = 0
+            while f"net_{lay_index}" in request.data:
+
+
+
+                if common_data["activity"] == "Laying_Start":
+                        
+                        net = Net.objects.get(
+                            id=request.data[f"net_{lay_index}"], company=self.company, farm=self.farm
+                        )
+
+                        # Check if net.id, company, and farm with status="ongoing" exist in NetUseStats
+                        print(f"Checking if NetUseStats exists for Net {net}...")
+                        if NetUseStats.objects.filter(net=net, company=self.company, farm=self.farm, stats="ongoing").exists():
+                            print(f"Net {net} is already in use with ongoing status. by batch {self.batch.batch_name}")
+                            raise ValidationError(f"Net {net} is already in use with ongoing status. by batch {self.batch.batch_name}")
+                        
+                        
+                        net_use_stat = NetUseStats.objects.create(
+                            batch=self.batch,
+                            farm=self.farm,
+                            company=self.company,
+                            net=net,
+                            lay_start=request.data[f"startDate_{lay_index}"],
+                            created_by=request.user,
+                        )
+                        self.model_id = net_use_stat.id
+                        self._handle_media_files(request, common_data, net_use_stat, lay_index)
+                        self.completeDetails += f"[ - appName = {common_data['appName']},  - modelName = {common_data['modelName']}, - modelId = {net_use_stat.id},  - activity = {common_data['activity']}, - filledOut = {'lay_start'}]"
+                        
+                
+                elif common_data["activity"] == "Laying_End":
+
+                    print("Processing Laying_End activity...")
+
+                    net_use_id = request.data.get("modelID"); 
+                    print(f"NetUseID is: {net_use_id}")
+
+                    if not net_use_id:
+                        print("NetUseID is required.")
+                        raise ValidationError("The 'netUseID' parameter is required.")
+                    
+                    net_use_stat = NetUseStats.objects.filter(company=self.company, id=net_use_id, batch=self.batch, farm=self.farm, stats="ongoing").first(); 
+                    print(f"NetUseStat is: {net_use_stat}")
+                    
+                    if not net_use_stat:
+                        raise ValidationError("No ongoing NetUseStats found for the specified ID.")
+                    
+                    netInstance = net_use_stat.net; 
+                    print(f"Net Id is: {netInstance.id}")
+
+                    net = Net.objects.get(company=self.company, id=netInstance.id, branch=self.branch, farm=self.farm, status="active"); 
+                    print(f"Net: {net.id}")
+                    
+                    self.harvested_eggs = request.data.get( f"harvestWeight_{lay_index}"); print(f"Harvested Eggs: {self.harvested_eggs}")
+                    expect_harvest = net.expect_harvest; print(f"Expected Harvest: {expect_harvest}")
+                    
+                    if self.harvested_eggs is None:
+                        self.harvested_eggs = 0
+                    if expect_harvest is None:
+                        expect_harvest = 0
+
+                    percentScore = (float(self.harvested_eggs) / float(expect_harvest)) * 100
+                    if percentScore >= 90:
+                        laying_ratting = "outstanding"
+                    elif percentScore >= 75:
+                        laying_ratting = "exceeds_expectation"
+                    elif percentScore >= 50:
+                        laying_ratting = "satisfactory"
+                    elif percentScore >= 25:
+                        laying_ratting = "unsatisfactory"
+                    else:
+                        laying_ratting = "poor"
+
+                    print(f"percentScore: {percentScore}")
+                    print(f"Laying Ratting: {laying_ratting}")
+
+                    # Update the NetUseStats object
+                    net_use_stat.lay_end = request.data.get( f"endDate_{lay_index}");  print(f"Lay End: {net_use_stat.lay_end}")
+                    net_use_stat.harvest_weight = self.harvested_eggs
+                    net_use_stat.stats = "completed"
+                    net_use_stat.created_by = request.user
+                    net_use_stat.laying_ratting = laying_ratting
+                    net_use_stat.save()
+                    self._handle_media_files(request, common_data, net_use_stat, 0)
+                    self.completeDetails += f"[ - appName = {common_data['appName']},  - modelName = {common_data['modelName']}, - modelId = {net_use_stat.id},  - activity = {common_data['activity']}, - filledOut = {'lay_end, harvest_weight'}]"
+                
+                lay_index += 1
+
+
+        except Exception as e:
+            logging.error(f"Error processing lay starts and media: {str(e)}")
+            raise
+
+    def _handle_media_files(self, request, common_data, net_use_stat, lay_index):
+        """
+        Handles media file uploads associated with a specific layStart.
+        """
+        media_index = 0
+        while f"media_title_{lay_index}_{media_index}" in request.data:
+            file = request.FILES.get(f"media_file_{lay_index}_{media_index}")
+            media_title = request.FILES.get(f"media_title_{lay_index}_{media_index}")
+
+            if not media_title and not file:
+                print(f"Skipping media upload for layer {lay_index}, media {media_index}")
+                return  # Skip if media is missing
+
+            #if not file:
+                #raise ValidationError("Media file is required.")
+            
+
+            try:
+                # Save the file to a persistent location
+                # Define the dynamic upload path
+                def save_media_file(file, common_data, net_use_stat, lay_index, media_index):
+                    """
+                    Saves a media file to a persistent location and returns the saved path.
+                    """
+                    upload_path = os.path.join(
+                        common_data["appName"],
+                        common_data["modelName"],
+                        str(net_use_stat.id),
+                        f"media_{lay_index}_{media_index}_{file.name}"
+                    )
+                    saved_path = default_storage.save(upload_path, ContentFile(file.read()))
+                    return saved_path
+
+                # Usage in the _handle_media_files method
+                saved_path = save_media_file(file, common_data, net_use_stat, lay_index, media_index)
+
+                Media.objects.create(
+                    title=request.data[f"media_title_{lay_index}_{media_index}"],
+                    file=saved_path,  # Store the saved path
+                    comments=request.data.get(f"media_comments_{lay_index}_{media_index}", ""),
+                    company=self.company,
+                    app_name=common_data["appName"],
+                    model_name=common_data["modelName"],
+                    model_id=net_use_stat.id,
+                    uploaded_by=request.user,
+                    status="active",
+                    branch=self.branch,
+                )
+                print(f"Media file {media_index} uploaded for layStart or layEnd {lay_index}")
+                media_index += 1
+            except Exception as e:
+                logging.error(f"Error saving media file: {str(e)}")
+                raise
+
+    def _update_task_and_create_next_step(self, request, common_data):
+        """
+        Updates the current task's status and creates a new task for the next step.
+        """
+
+        """
+        Creates the next task in the workflow dynamically based on the activity.
+        """
+        print("Creating the next task in the workflow...")
+        # Update batch information
+        batch = Batch.objects.filter(
+            company=self.company,
+            farm=self.farm,
+            batch_name=common_data["batch"],
+        ).first()
+        #print(f"Batch: {batch}")
+
+        # Fetch duration settings dynamically for the company's branch
+        duration = DurationSettings.objects.filter(company=self.company, farm=self.farm).first(); print(f"Duration: {duration}")
+
+        # Determine the next task based on the activity
+        
+        if common_data["activity"] == "Laying_Start":
+            # Calculate the due date for the next task
+            laying_duration = duration.laying_duration if duration else 3
+            next_task_due_date = now() + timedelta(days=laying_duration)
+            next_activity = "Laying_End"
+            title=f"Harvest and provide Eggies harvest data for batch {common_data['batch']}",
+            description=f"""
+                Task Details:
+                - Batch: {common_data['batch']}
+                - model_id : {self.model_id}
+                - Required:
+                  - Lay end: ?
+                  - Stage: Laying_End
+                  - Harvest weight: ?
+                  - Stats: completed
+                  - Media: True for points allocation
+                """,
+        
+            #this would be incorrect if laying for particular batch ever gets edited or updated again
+            if batch:
+                #print("Updating batch information...")
+                batch = Batch.objects.get(id=batch.id)
+
+                # Get the start date string from request data
+                start_date_str = request.data.get(f"startDate_0")
+                if not start_date_str:
+                    raise ValidationError("Start date is required.")
+                
+                # Update fields
+                batch.laying_start_date  = start_date_str
+                batch.cretated_by  = request.user
+
+                # Save the updated batch object
+                print("Saving batch...")
+                batch.save()
+                print("Batch information successfully updated.")
+        
+        elif common_data["activity"] == "Laying_End":
+            # Calculate the due date for the next task
+            net = NetUseStats.objects.get(id=request.data.get("modelID"), company=self.company, farm=self.farm); print(f"Net: {net.net}")
+            next_task_due_date = now()
+            next_activity = "Incubation"
+            title=f"Need to Incubate the {self.harvested_eggs}grams of eggs harvested from Net{net.net.name}: for batch: {common_data['batch']}",
+            description=f"""
+                Task Details:
+                - Batch: {common_data['batch']}
+                - from Net: {net.net.name}
+                - Required:
+                    - Set Date
+                    - Start Weight
+                    - Pond
+                    - Stats: ongoing
+                    - Media: True for points allocation
+                """,
+            '''
+            #this would be incorrect if laying for particular batch ever gets edited or updated again
+
+            
+            if batch:
+                #print("Updating batch information...")
+                batch = Batch.objects.get(id=batch.id)
+
+                # Get the start date string from request data
+                end_date_str = request.data.get(f"lay_end")
+                if not end_date_str:
+                    raise ValidationError("End date is required.")
+                
+                # Update fields
+                batch.laying_end_date  = end_date_str
+                batch.laying_harvest_quantity  = request.data.get("harvestedEggs")
+                batch.laying_status  = "completed"
+                batch.cretated_by  = request.user
+
+                # Save the updated batch object
+                print("Saving batch...")
+                batch.save()
+                print("Batch information successfully updated.")
+
+            # '''
+            
+        else:
+            # Handle other activities if needed
+            next_activity = "Unknown"
+            next_task_due_date = now()
+            title = f"Unknown task for activity {common_data['activity']}"
+            description = f"Task for {common_data['activity']} is not defined."
+        
+        if next_activity == "Unknown":
+            raise ValidationError("Unknown activity. Task not created.")
+        
+        # Fetch the activity owner for the next task
+        activity_info = ActivityOwner.objects.filter(
+            company=self.company,
+            branch=self.branch,
+            activity=next_activity,
+            status="active",
+        ).first()
+
+        if not activity_info:
+            #assign task to manager if only one manager exisit in the company's branch else
+            #assign task to the director in the company's branch
+            managers = StaffMember.objects.filter(company=self.company, branch=self.branch, position="manager", status="active")
+            if managers.count() == 1:
+                self.assigned_to = managers.first().user
+            else:
+                directors = StaffMember.objects.filter(company=self.company, branch=self.branch, position="director", status="active")
+                if directors.exists():
+                    self.assigned_to = directors.first().user
+                else:
+                    raise ValidationError("No suitable manager or director found for task assignment.")
+        if activity_info:
+            print(f"Activity Owner: {activity_info.owner}")
+            self.assigned_to = activity_info.owner if activity_info.owner else (activity_info.assistant if activity_info.assistant else activity_info.owner.lead)
+        else:
+            self.assigned_to = None
+
+        # Create the next task in the workflow
+        Task.objects.create(
+            company=self.company,
+            branch=self.branch,
+            title=title,
+            description=description,
+            due_date=next_task_due_date,
+            assigned_to=self.assigned_to if self.assigned_to else None,
+            assistant=activity_info.assistant if activity_info else None,
+            appName=activity_info.appName if activity_info else None,
+            modelName=activity_info.modelName if activity_info else None,
+            activity = activity_info.activity if activity_info else None,
+            status="active", 
+        )
+
+        try:
+            task = Task.objects.filter(
+                id=common_data["taskId"],
+                title=common_data["taskTitle"],
+                company=common_data["company"],
+                appName=common_data["appName"],
+                modelName=common_data["modelName"],
+                activity=common_data["activity"],
+            ).first()
+            #print(self.completeDetails)
+            if task:
+                task.status = "pending"
+                task.completeDetails = self.completeDetails
+                task.completed_by = request.user
+                task.completed_date = now()
+                task.save()
+
+                # Create the next task in the workflow
+                #self._create_next_task(request, common_data)
+
+            '''
+            
+                # Update batch information -  has to be done at the end of all batch activities
+                batch = Batch.objects.filter(
+                    company=self.company,
+                    farm=self.farm,
+                    batch_name=common_data["batch"],
+                ).first()
+                if batch:
+                    #print("Updating batch information...")
+                    batch = Batch.objects.get(id=batch.id)
+
+                    # Get the start date string from request data
+                    start_date_str = request.data.get(f"startDate_0")
+                    if not start_date_str:
+                        raise ValidationError("Start date is required.")
+                    
+                    # Update fields
+                    batch.laying_start_date  = start_date_str
+                    batch.cretated_by  = request.user
+
+                    # Save the updated batch object
+                    print("Saving batch...")
+                    batch.save()
+                    print("Batch information successfully updated.")
+            '''
+        except Exception as e:
+            logging.error(f"Error updating task or batch: {str(e)}")
+            raise
+
+    def _create_next_task(self, request, common_data):
+        """
+        Creates the next task in the workflow.
+        """
+        
+
+        duration = DurationSettings.objects.filter(
+            company=self.company,
+            farm=self.farm,
+        ).first()
+
+        laying_duration = duration.laying_duration if duration else 3
+        new_task_due_date = now() + timedelta(days=laying_duration)
+
+        
+
+        activity_info = ActivityOwner.objects.filter(
+            company=self.company,
+            branch=self.branch,
+            activity="Laying_End",
+            status="active",
+        ).first()
+
+        batch = Batch.objects.filter(
+                    company=self.company,
+                    farm=self.farm,
+                    batch_name=common_data["batch"],
+                ).first()
+
+        Task.objects.create(
+            company=self.company,
+            branch=self.branch,
+            title=f"Harvest and provide Eggies harvest data for batch {common_data['batch']}",
+            description="""
+            Task Details:
+            - Batch: {batch_name}
+            - Required:
+              - Lay end: ?
+              - Harvest weight: ?
+              - Stats: pending
+              - Media: True for points allocation
+            """.format(batch_name=common_data["batch"]),
+            due_date=new_task_due_date,
+            assigned_to=activity_info.owner if activity_info else None,
+            assistant=activity_info.assistant if activity_info else None,
+            appName="bsf",
+            modelName="NetInUse",
+            status="active",
+            activity = activity_info.activity if activity_info else None,
+        )
+        logging.info("Next task created successfully.")
+
+
+        return Response({"detail": "Media files uploaded successfully."}, status=status.HTTP_201_CREATED)
+
+    def _get_company_and_validate_permissions(self, action, for_create=False):
+        """
+        Retrieves the company based on the request and validates permissions.
+        """
+        company_id = self.request.query_params.get("company") if not for_create else self.request.data.get("company")
+        farm_id = self.request.query_params.get("farm") if not for_create else self.request.data.get("farm")
+
+        if not company_id:
+            raise PermissionDenied("'company' parameter is required.")
+
+        try:
+            company = Company.objects.get(id=company_id)
+        except Company.DoesNotExist:
+            raise NotFound("The specified company does not exist.")
+
+        has_permission(
+            user=self.request.user,
+            company=company,
+            app_name="bsf",
+            model_name="NetUseStats",
+            action=action,
+        )
+
+        return company, farm_id
+
+    def process_whatsapp_submission(self, request):
+        """
+        Processes WhatsApp task completion messages.
+        """
+        sender = request.data.get("From")  # Staff's WhatsApp number
+        message = request.data.get("Body").strip()  # Message body
+        media_url = request.data.get("MediaUrl0")  # First media file (if any)
+        
+        response = MessagingResponse()
+
+        if message.lower().startswith("start task"):
+            task_id = message.split()[-1]
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="pending").first()
+            if not task:
+                response.message("❌ Task not found or already completed.")
+                return Response(str(response), content_type="text/xml")
+
+            task.status = "in_progress"
+            task.save()
+            response.message(f"✅ Task {task_id} started. Please enter the completion date (YYYY-MM-DD).")
+            return Response(str(response), content_type="text/xml")
+
+        if message.lower().startswith("date:"):
+            task_id = message.split()[1]
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="in_progress").first()
+            if not task:
+                response.message("❌ Task not found or not in progress.")
+                return Response(str(response), content_type="text/xml")
+
+            task.completed_date = message.split()[2]  # Extract date
+            response.message("📸 Upload a photo as proof or type SKIP if not needed.")
+            return Response(str(response), content_type="text/xml")
+
+        if media_url:
+            task_id = request.data.get("task_id")
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="in_progress").first()
+            if not task:
+                response.message("❌ Task not found.")
+                return Response(str(response), content_type="text/xml")
+
+            # Save media to NetUseStats
+            net_use_stat = NetUseStats.objects.create(
+                batch=task.batch,
+                farm=task.farm,
+                company=task.company,
+                created_by=task.assigned_to,
+                lay_start=task.completed_date,
+                stats="completed",
+            )
+
+            # Save media file
+            Media.objects.create(
+                title="WhatsApp Upload",
+                file=media_url,
+                company=task.company,
+                model_name="NetUseStats",
+                model_id=net_use_stat.id,
+                uploaded_by=task.assigned_to,
+                status="active",
+            )
+
+            task.status = "completed"
+            task.save()
+
+            response.message("✅ File received. Task marked as complete!")
+            return Response(str(response), content_type="text/xml")
+
+        return Response(str(response), content_type="text/xml")
+
+    
+Do you need WhatsApp task completion to trigger the same API? Yes
+
+If WhatsApp should submit forms exactly like TaskList.tsx does, I’ll ensure it formats WhatsApp responses to match. Yes please, exactly

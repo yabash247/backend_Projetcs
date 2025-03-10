@@ -363,7 +363,7 @@ class Media(models.Model):
     model_id = models.PositiveIntegerField()
     title = models.CharField(max_length=255)
     category = models.CharField(max_length=100, blank=True, null=True)
-    file = models.FileField(upload_to=media_upload_path)
+    file = models.FileField(upload_to=media_upload_path, max_length=1000)
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="inactive"
     )
@@ -663,7 +663,6 @@ class ActivityOwner(models.Model):
 
         super().save(*args, **kwargs)
     
-
 
 class RewardsPointsTracker(models.Model):
     """

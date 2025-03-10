@@ -159,9 +159,12 @@ class MediaSerializer(serializers.ModelSerializer):
 
 
 class TaskSerializer(serializers.ModelSerializer):
+    assignedToUserId = serializers.IntegerField(source="assigned_to.id", read_only=True)  # ✅ Ensures assigned user ID is returned
+
     class Meta:
         model = Task
-        fields = "__all__"
+        fields = ["id", "title", "due_date", "status", "assignedToUserId"]
+        #fields = "__all__"
         #read_only_fields = ['id', 'created_at']
 
 

@@ -31,7 +31,16 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = []
 
-ALLOWED_HOSTS = ['yabash.pythonanywhere.com', 'localhost', '127.0.0.1', 'http://localhost:3000', 'api.yabash.com']
+ALLOWED_HOSTS = [
+    'yabash.pythonanywhere.com', 
+    'localhost', 
+    '127.0.0.1', 
+    'http://localhost:3000', 
+    'api.yabash.com',
+    "*", # delete prior to app been made available to public use
+    'https://ded0-185-203-122-72.ngrok-free.app',
+    ".ngrok-free.app"
+    ]
 
 from corsheaders.defaults import default_headers
 
@@ -76,6 +85,13 @@ CSRF_TRUSTED_ORIGINS = [
     "http://api.yabash.com",
     # Add any other trusted origins here.
 ]
+
+
+TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = config("TWILIO_WHATSAPP_NUMBER")
+
+
 
 
 
@@ -281,3 +297,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+

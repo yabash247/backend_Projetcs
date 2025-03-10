@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from .models import Farm, StaffMember, Net, Batch, DurationSettings, NetUseStats, Pond, PondUseStats as PondUseStatsModel, PondUseStats
 from company.models import Company, Media, Task, ActivityOwner, Branch # Import the Company model
+
 from company.serializers import MediaSerializer
 from .serializers import FarmSerializer, StaffMemberSerializer, NetSerializer, BatchSerializer, DurationSettingsSerializer, NetUseStatsSerializer, PondSerializer, PondUseStatsSerializer
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -20,7 +21,27 @@ from django.db.models import Q  # Add Q for advanced filtering
 from django.core.exceptions import ObjectDoesNotExist
 import logging
 import datetime
+import re
+import requests
+import os
+import json
+from decouple import config
+from twilio.twiml.messaging_response import MessagingResponse
+from django.core.cache import cache
+import urllib.parse
 from decimal import Decimal
+from users.models import UserProfile  # Add this line to import UserProfile
+
+
+logger = logging.getLogger(__name__)
+
+#whatsapp messaging needed imports
+from twilio.twiml.messaging_response import MessagingResponse
+import requests
+
+#Step 7: Deploy Your Webhook (Optional)
+    #VPS (Ubuntu, Nginx, Gunicorn)
+    #This allows Twilio to access your webhook permanently.
 
 
 from django.core.files.storage import default_storage
@@ -980,6 +1001,13 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         try:
+
+            # Check if the request is from WhatsApp
+            if "From" in request.data and "Body" in request.data:
+                print("Processing  data sent from whatsapp.....")
+                return self.process_whatsapp_submission(request)
+            
+
             # Extract and validate common data
             print("Extracting and validating common data...")
             common_data = self._extract_and_validate_common_data(request)
@@ -1480,7 +1508,90 @@ class NetUseStatsListCreateView(generics.ListCreateAPIView):
 
         return company, farm_id
 
+    def process_whatsapp_submission(self, request):
+        """
+        Processes WhatsApp task completion messages and formats them like TaskList.tsx submissions.
+        """
+        sender = request.data.get("From")  # Staff's WhatsApp number
+        message = request.data.get("Body").strip()  # WhatsApp message body
+        media_url = request.data.get("MediaUrl0")  # First media file (if any)
 
+        response = MessagingResponse()
+        task_id = None
+
+        if message.lower().startswith("start task"):
+            task_id = message.split()[-1]
+
+            # Find the corresponding task in the company Task model
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="active").first()
+            if not task:
+                response.message("❌ Task not found or already completed.")
+                return Response(str(response), content_type="text/xml")
+
+            # Mark task as "in_progress"
+            task.status = "in_progress"
+            task.save()
+            response.message(f"✅ Task {task_id} started. Please enter the completion date (YYYY-MM-DD).")
+            return Response(str(response), content_type="text/xml")
+
+        elif message.lower().startswith("date:"):
+            task_id = message.split()[1]
+
+            # Retrieve task in progress
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="in_progress").first()
+            if not task:
+                response.message("❌ Task not found or not in progress.")
+                return Response(str(response), content_type="text/xml")
+
+            task.completed_date = message.split()[2]  # Extract the entered date
+            response.message("📸 Upload a photo as proof or type SKIP if not needed.")
+            return Response(str(response), content_type="text/xml")
+
+        elif media_url:
+            # Retrieve the ongoing task
+            task_id = request.data.get("task_id")
+            task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="in_progress").first()
+            if not task:
+                response.message("❌ Task not found.")
+                return Response(str(response), content_type="text/xml")
+
+            # Format the request data to match `TaskList.tsx` submission
+            formatted_data = {
+                "taskId": task.id,
+                "taskTitle": task.title,
+                "appName": task.appName,
+                "modelName": task.modelName,
+                "activity": task.activity,
+                "batch": task.company.id,  # Assuming batch is linked to the company
+                "branch": task.branch.id if task.branch else None,
+                "company": task.company.id,
+                "completed_date": task.completed_date,
+                "media_file": media_url,  # Media file URL from WhatsApp
+            }
+
+            # Call the `bsf/net-use-stats/` API
+            api_response = requests.post(
+                "https://yourserver.com/api/bsf/net-use-stats/",
+                data=formatted_data
+            )
+
+            if api_response.status_code == 201:
+                task.status = "completed"
+                task.completeDetails = "Completed via WhatsApp"
+                task.save()
+
+                response.message("✅ Task successfully completed!")
+            else:
+                response.message(f"❌ Error processing task. {api_response.text}")
+
+            return Response(str(response), content_type="text/xml")
+
+        response.message("❌ Invalid command. Type 'Start Task <TaskID>' to begin.")
+        return Response(str(response), content_type="text/xml")
+
+
+
+    
 
 class NetUseStatsDetailViewss(generics.RetrieveUpdateAPIView):
     """
@@ -2685,3 +2796,388 @@ class PondUseStats(APIView):
 
                     
 
+
+from twilio.twiml.messaging_response import MessagingResponse
+from rest_framework.authentication import TokenAuthentication, SessionAuthentication
+from twilio.rest import Client
+import requests
+
+class WhatsAppTaskViewArchive(APIView):
+    """
+    Handles WhatsApp task completion messages.
+    """
+    #authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]  # ✅ Require authentication
+
+    def post(self, request, *args, **kwargs):
+        """
+        Process WhatsApp messages to start, update, or complete tasks.
+        """
+
+        print('how are you')
+        sender = request.data.get("From")  # Staff's WhatsApp number
+        message = request.data.get("Body", "").strip().lower()  # WhatsApp message body
+        media_url = request.data.get("MediaUrl0")  # Media file (if any)
+        response = MessagingResponse()
+
+        if "start task" in message:
+            task_id = message.split()[-1]
+            return self._start_task(task_id, sender, response)
+
+        elif "complete task" in message:
+            task_id = message.split()[-1]
+            return self._complete_task(task_id, sender, response, media_url)
+
+        elif message.startswith("status"):
+            return self._task_status(sender, response)
+
+        response.message("❌ Invalid command. Type 'Start Task <TaskID>' or 'Complete Task <TaskID>'.")
+        return Response(str(response), content_type="text/xml")
+
+    def _start_task(self, task_id, sender, response):
+        """
+        Marks a task as 'in progress' when started via WhatsApp.
+        """
+        task = Task.objects.filter(id=task_id, assigned_to=sender, status="active").first()
+        if not task:
+            response.message("❌ Task not found or already started.")
+            return Response(str(response), content_type="text/xml")
+
+        task.status = "in_progress"
+        task.save()
+        response.message(f"✅ Task {task_id} started. Reply with 'Complete Task {task_id}' when finished.")
+        return Response(str(response), content_type="text/xml")
+
+    def _complete_task(self, task_id, sender, response, media_url):
+        """
+        Marks a task as 'completed' via WhatsApp and uploads media if provided.
+        """
+        task = Task.objects.filter(id=task_id, assigned_to__phone_number=sender, status="in_progress").first()
+        if not task:
+            response.message("❌ Task not found or not in progress.")
+            return Response(str(response), content_type="text/xml")
+
+        task.status = "completed"
+        task.completed_by = task.assigned_to
+        task.completed_date = now()
+        task.completeDetails = "Completed via WhatsApp"
+        task.save()
+
+        # Save media if provided
+        if media_url:
+            media = Media.objects.create(
+                title="WhatsApp Upload",
+                file=media_url,
+                company=task.company,
+                model_name="Task",
+                model_id=task.id,
+                uploaded_by=task.assigned_to,
+                status="active"
+            )
+            media.save()
+            response.message("✅ Task completed! Media uploaded.")
+
+        self._create_next_task(task)
+        response.message(f"✅ Task {task_id} marked as complete. The next task has been assigned.")
+        return Response(str(response), content_type="text/xml")
+
+    def _task_status(self, sender, response):
+        """
+        Returns the status of active tasks assigned to the sender.
+        """
+        tasks = Task.objects.filter(assigned_to__phone_number=sender, status__in=["active", "in_progress"])
+        if not tasks.exists():
+            response.message("✅ You have no pending tasks.")
+            return Response(str(response), content_type="text/xml")
+
+        message = "📋 *Your Pending Tasks:*\n"
+        for task in tasks:
+            message += f"- {task.title} (Due: {task.due_date.strftime('%Y-%m-%d')})\n"
+        response.message(message)
+        return Response(str(response), content_type="text/xml")
+
+    def _create_next_task(self, task):
+        """
+        Automatically generates the next task in the workflow.
+        """
+        next_task_title = f"Next Step After {task.title}"
+        next_task = Task.objects.create(
+            company=task.company,
+            branch=task.branch,
+            title=next_task_title,
+            description=f"Follow-up after {task.title}.",
+            due_date=now() + timedelta(days=2),
+            assigned_to=task.assistant if task.assistant else task.assigned_to,
+            status="active"
+        )
+        next_task.save()
+
+
+class WhatsAppTaskView(APIView):
+    """
+    Handles WhatsApp task interactions for starting, completing, and notifying users.
+    """
+
+    def post(self, request, *args, **kwargs):
+
+        sender = request.data.get("From")
+        message = request.data.get("Body", "").strip().lower()
+        media_url = request.data.get("MediaUrl0")
+        sender_phone = sender.replace("whatsapp:", "").strip()
+        #print(f"📩 Incoming WhatsApp Message from {sender}: {message}")
+
+        response = MessagingResponse()
+
+        # ✅ Step 1: Check if the user is logged in via phone
+        user = self.get_user_by_phone(sender_phone)
+
+        # ✅ Retrieve stored task ID for continuity
+        task_id = cache.get(f"task_{sender_phone}_id", None)
+
+        # ✅ If message contains a task_id, extract it & store it
+        extracted_task_id = self.extract_task_id(message)
+        if extracted_task_id:
+            task_id = extracted_task_id
+            cache.set(f"task_{sender_phone}_id", task_id)
+
+        if task_id is None:
+            return self.send_message(sender_phone, "❌ No active task found. Please start with 'Start Task <TaskID>'.")
+        
+        # ✅ Store task_id in cache (ensures continuity)
+        #cache.set(f"task_{sender_phone}_id", task_id)
+
+        # ✅ Verify user
+        user = self.get_user_by_phone(sender_phone)
+        if not user:
+            return self.send_message(sender_phone, "❌ No user found with this phone number.")
+
+        # ✅ Process Steps
+        return self.process_whatsapp_task_step(sender_phone, message, media_url, task_id)
+
+
+    def process_whatsapp_task_step(self, sender_phone, message, media_url, task_id):
+        """
+        Handles step-by-step WhatsApp task data collection dynamically.
+        """
+        runStep = True  # ✅ Controls whether the loop should continue
+       
+
+        while runStep:
+
+            current_step = cache.get(f"whatsapp_step_{sender_phone}", "start_task")
+            print(f"🔄 Processing Step: {current_step} for Task {task_id}")
+
+            # ✅ Step 0: Start Task - Ask for End Date
+            if current_step == "start_task":
+                cache.set(f"whatsapp_step_{sender_phone}", "end_date")
+                return self.ask_next_step(sender_phone, "end_date") 
+
+            # ✅ Step 1: Validate & Store End Date
+            elif current_step == "end_date":
+                if not re.match(r"\d{4}-\d{2}-\d{2}", message):
+                    return self.send_message(sender_phone, "❌ Invalid format! Please enter End Date (YYYY-MM-DD).")
+
+                cache.set(f"task_{sender_phone}_end_date", message)
+                cache.set(f"whatsapp_step_{sender_phone}", "harvest_weight")
+                return self.ask_next_step(sender_phone, "harvest_weight") 
+                #current_step = "harvest_weight"
+                runStep = True  # ✅ Continue to the next step
+                continue  # ✅ Continue loop execution
+
+            # ✅ Step 2: Validate & Store Harvest Weight
+            elif current_step == "harvest_weight":
+                if not message.isdigit():
+                    return self.send_message(sender_phone, "❌ Invalid input! Please enter a numeric Harvest Weight (kg).")
+
+                cache.set(f"task_{sender_phone}_harvest_weight", message)
+                cache.set(f"whatsapp_step_{sender_phone}", "harvest_date")
+                return self.ask_next_step(sender_phone, "harvest_date") 
+                #current_step = "harvest_date"
+                runStep = True  # ✅ Continue to the next step
+                continue  # ✅ Continue loop execution
+
+            # ✅ Step 3: Validate & Store Harvest Date
+            elif current_step == "harvest_date":
+                if not re.match(r"\d{4}-\d{2}-\d{2}", message):
+                    return self.send_message(sender_phone, "❌ Invalid format! Please enter Harvest Date (YYYY-MM-DD).")
+
+                cache.set(f"task_{sender_phone}_harvest_date", message)
+                cache.set(f"whatsapp_step_{sender_phone}", "media")
+                return self.ask_next_step(sender_phone, "media") 
+
+            # ✅ Step 4: Collect Media (Optional)
+            elif current_step == "media":
+                if message.lower() == "skip":
+                    cache.set(f"task_{sender_phone}_media", "None")
+                elif media_url:
+                    cache.set(f"task_{sender_phone}_media", media_url)
+                else:
+                    return self.send_message(sender_phone, "📸 Upload a photo/video, or type 'SKIP' to continue.")
+
+                
+                self.send_message(sender_phone, "✅ Thanks! Submitting Task.....") 
+                # ✅ Final Step: Submit the Task
+                return self.submit_task(sender_phone, task_id)
+
+        return Response({"message": "Invalid step"}, status=400)
+
+    def get_user_by_phone(self, sender_phone):
+        """
+        Retrieves the user based on phone number.
+        """
+        user_profile = UserProfile.objects.filter(phone=sender_phone).first()
+        return user_profile.user if user_profile else None
+
+    def _start_task(self, task_id, sender, response):
+
+        """
+        Marks a task as 'in progress' when started via WhatsApp.
+        """
+        # ✅ Extract phone number from 'whatsapp:+17136890771'
+        sender_phone = sender.replace("whatsapp:", "").strip()
+
+        # ✅ Retrieve the user based on phone number
+        user_profile = UserProfile.objects.filter(phone=sender_phone).first()
+        if not user_profile:
+            response.message("❌ No user found with this phone number.")
+            return Response(str(response), content_type="text/xml")
+
+        user = user_profile.user  # ✅ Get the linked user
+
+        task = Task.objects.filter(id=task_id, status="active").first()
+        #print(task)
+        if not task:
+            response.message("❌ Task not found or already started.")
+            return Response(str(response), content_type="text/xml")
+        
+
+        # ✅ Start Step 1: Ask for "End Date"
+        self.ask_next_step(task_id, sender_phone, step="end_date")
+        
+        return Response({"message": "Step-by-step WhatsApp form started"}, status=200)
+  
+    def _complete_task(self, task_id, sender, response, media_url):
+        task = Task.objects.filter(id=task_id, assigned_to__work_phone=sender, status="in_progress").first()
+        if not task:
+            response.message("❌ Task not found or not in progress.")
+            return Response(str(response), content_type="text/xml")
+
+        task.status = "completed"
+        task.completed_by = task.assigned_to
+        task.completed_date = now()
+        task.completeDetails = "Completed via WhatsApp"
+        task.save()
+
+        if media_url:
+            Media.objects.create(
+                title="WhatsApp Upload",
+                file=media_url,
+                company=task.company,
+                model_name="Task",
+                model_id=task.id,
+                uploaded_by=task.assigned_to,
+                status="active"
+            )
+
+        response.message(f"✅ Task {task_id} completed! You will be notified for the next step.")
+
+        # Notify the manager
+        self.notify_manager(task)
+
+        return Response(str(response), content_type="text/xml")
+
+    def notify_manager(self, task):
+        """
+        Sends a WhatsApp notification to the manager after task completion.
+        """
+        manager_phone = task.assigned_to.manager.phone_number  # Ensure manager field exists in model
+        client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+
+        message = f"📢 Task {task.id} completed by {task.assigned_to.username}."
+        client.messages.create(
+            body=message,
+            from_="whatsapp:+14155238886",
+            to=f"whatsapp:{manager_phone}"
+        )
+
+    def extract_task_id(self, message):
+        """
+        Extracts the task ID from a WhatsApp message.
+        Supports different message formats.
+        """
+        match = re.search(r"task\s+(\d+)", message)
+        if match:
+            return int(match.group(1))
+        return None
+
+    def ask_next_step(self, sender_phone, step):
+        """
+        Guides the user through the form one step at a time.
+        """
+
+        questions = {
+            "end_date": "📅 Please enter the *End Date* (YYYY-MM-DD):",
+            "harvest_weight": "⚖️ Please enter the *Harvest Weight (kg)*:",
+            "harvest_date": "📆 Please enter the *Harvest Date* (YYYY-MM-DD):",
+            "media": "📸 Send a *photo or video* (or type SKIP to continue)."
+        }
+
+        # ✅ Ask the next question based on `step`
+        if step in questions:
+            return self.send_message(sender_phone, questions[step])
+
+    def send_message(self, sender_phone, message_body):
+        """
+        Sends a WhatsApp message to the user.
+        """
+        TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
+        TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+        client.messages.create(
+            from_="whatsapp:+14155238886",
+            to=f"whatsapp:{sender_phone}",
+            body=message_body
+        )
+
+        print(f"📤 Sent WhatsApp Message to {sender_phone}: {message_body}")
+        return Response({"message": "WhatsApp message sent"}, status=200)
+    
+    def submit_task(self, sender_phone, task_id):
+        """
+        Submits the collected task form data.
+        """
+        try:
+
+            TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
+            TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
+            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+            end_date = cache.get(f"task_{sender_phone}_end_date", "")
+            harvest_weight = cache.get(f"task_{sender_phone}_harvest_weight", "")
+            harvest_date = cache.get(f"task_{sender_phone}_harvest_date", "")
+            media = cache.get(f"task_{sender_phone}_media", "")
+
+            # ✅ Submit the task completion data
+            form_data = {
+                "end_date": end_date,
+                "harvest_weight": harvest_weight,
+                "harvest_date": harvest_date,
+                "media": media
+            }
+
+            print(f"📤 Submitting Task Data: {form_data}")
+
+            client.messages.create(
+                from_="whatsapp:+14155238886",
+                to=f"whatsapp:{sender_phone}",
+                body="✅ Task submission complete! Sending for approval."
+            )
+
+            # ✅ Ensure response is always returned
+            return Response({"message": "Task successfully submitted"}, status=200)
+        
+        except Exception as e:
+            print(f"❌ Error in submit_task: {e}")
+            return Response({"error": "Task submission failed"}, status=500)
+ 

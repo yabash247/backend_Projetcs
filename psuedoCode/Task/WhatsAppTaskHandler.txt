@@ -1,0 +1,92 @@
+
+
+
+
+📌 Step 1: Initialize WhatsApp Request
+
+    1️⃣ Retrieve WhatsApp Request Data
+        1. Extract sender's phone number from WhatsApp request.
+        2. Extract message content, convert it to lowercase for case-insensitive processing.
+        3. Extract media URL (if available) from the request.
+
+    2️⃣ Check if the User is Logged In
+        1. Retrieve the **logged-in user** from cache using `whatsapp_logged_in_{phone}`.
+        2. If a logged-in user exists, associate `user_id` with session handling.
+        3. If no logged-in user:
+            - Return an error message prompting login.
+            - Stop further processing since the user is not authenticated.
+
+    3️⃣ Check for an Active Task Session
+        1. Retrieve the task ID (`task_id`) from cache **based on the logged-in user**:
+        - Instead of `task_{phone}_id`, use `task_{user_id}_id`.
+        - This ensures each logged-in user has their **own task session**.
+
+        2. Check if the user’s message contains a task ID:
+        - Extract `task_id` from the message if present.
+        - Store the extracted task ID in cache using `task_{user_id}_id`.
+
+    4️⃣ Handle Missing Task Scenario
+        1. If no `task_id` is found after extraction:
+        - Inform the user that they need to start a task.
+        - Stop further processing until a task is associated.
+
+
+
+📌 Step 2: Process Task Steps:
+
+    FUNCTION process_whatsapp_task_step():
+    RETRIEVE `task_id` from cache (whatsapp_active_task_{user_id})
+    
+    IF no `task_id` exists:
+        RETURN message "No active task found. Start with 'Start Task <TaskID>'."
+    
+    RETRIEVE `current_step` from cache (whatsapp_step_{user_id}_{task_id}) OR DEFAULT to "start_task" #also include the current step information which then gets updated as the current step changes 
+    
+    PRINT "Processing Step: {current_step} for Task {task_id}"
+    
+    LOOP:
+        IF current_step == "start_task":
+            STORE "end_date" as the next step (whatsapp_step_{user_id}_{task_id})
+            CALL ask_next_step("end_date")
+            BREAK
+        
+        ELSE IF current_step == "end_date":
+            IF message format is INVALID (not YYYY-MM-DD):
+                RETURN message "Invalid format! Enter End Date (YYYY-MM-DD)."
+
+            STORE message as `end_date` (task_{user_id}_{task_id}_end_date)
+            STORE "harvest_weight" as the next step
+            CALL ask_next_step("harvest_weight")
+            BREAK
+        
+        ELSE IF current_step == "harvest_weight":
+            IF message is NOT a number:
+                RETURN message "Invalid input! Enter a numeric Harvest Weight (kg)."
+
+            STORE message as `harvest_weight`
+            STORE "harvest_date" as the next step
+            CALL ask_next_step("harvest_date")
+            BREAK
+
+        ELSE IF current_step == "harvest_date":
+            IF message format is INVALID (not YYYY-MM-DD):
+                RETURN message "Invalid format! Enter Harvest Date (YYYY-MM-DD)."
+
+            STORE message as `harvest_date`
+            STORE "media" as the next step
+            CALL ask_next_step("media")
+            BREAK
+
+        ELSE IF current_step == "media":
+            IF message == "skip":
+                STORE "None" as media
+            ELSE IF media_url EXISTS:
+                STORE media_url
+            ELSE:
+                RETURN message "Upload a photo/video, or type 'SKIP' to continue."
+
+            CALL submit_task(task_id)
+            BREAK
+        
+        ELSE:
+            RETURN message "Invalid step."

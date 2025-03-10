@@ -96,7 +96,7 @@ class FarmOwnership(models.Model):  # Tracks ownership percentages of a farm
 
 
 class Pond(models.Model):  # Represents a pond within a farm
-    depth = models.DecimalField(max_digits=10, decimal_places=2, help_text="Depth in meters")
+    depth = models.DecimalField(max_digits=10, decimal_places=2, help_text="Depth in feet")
     TYPE_CHOICES = [
         ('Earthen', 'Earthen'),
         ('Concrete', 'Concrete'),
@@ -106,14 +106,46 @@ class Pond(models.Model):  # Represents a pond within a farm
     name = models.CharField(max_length=255)
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="ponds")
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
-    size = models.DecimalField(max_digits=10, decimal_places=2, help_text="Size in square meters")
+    size = models.DecimalField(max_digits=10, decimal_places=2, help_text="Size in cubic feet")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
 
+class PondMaintenanceLog(models.Model): # Tracks maintenance activities performed on a pond, including repairs, treatments, cleaning, and cover installations
+    pond = models.ForeignKey('Pond', on_delete=models.CASCADE, related_name="maintenance_logs")
+    date = models.DateField(auto_now_add=True)
+    maintenance_type = models.CharField(max_length=255, choices=[
+        ('repair', 'Repair'),
+        ('treatment', 'Treatment'),
+        ('cleaning', 'Cleaning'),
+        ('covering', 'Covering'),
+        ('other', 'Other')
+    ])
+    description = models.TextField(help_text="Details of the maintenance activity")
+    performed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, help_text="Who performed the maintenance")
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('in_progress', 'In Progress'),
+        ('cancelled', 'Cancelled'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    due_date = models.DateField(null=True, blank=True, help_text="Due date for the maintenance activity")
+    completed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="completed_maintenance_logs", help_text="Who completed the maintenance")
+    completed_date = models.DateField(null=True, blank=True, help_text="Date when the maintenance was completed")
+    cost_of_maintenance = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Cost of the maintenance activity")
+    assigned_staff = models.ForeignKey(StaffMember, on_delete=models.SET_NULL, null=True, blank=True, related_name="maintenance_logs", help_text="Staff member assigned to this maintenance task")
+    class Meta:
+        indexes = [
+            models.Index(fields=["pond", "date"]),  # Add index for pond and date
+        ]
 
-class PondCondition(models.Model):  # Logs water quality parameters of a pond
+    def __str__(self):
+        return f"{self.pond.name} - {self.maintenance_type} on {self.date}"
+
+
+class PondWaterCondition (models.Model):  # Logs water quality parameters of a pond
     pond = models.ForeignKey(Pond, on_delete=models.CASCADE, related_name="conditions")
     recorded_at = models.DateTimeField(auto_now_add=True)
     temperature = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, help_text="Temperature in Celsius")

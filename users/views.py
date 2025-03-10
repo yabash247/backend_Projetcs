@@ -13,6 +13,7 @@ from rest_framework.parsers import JSONParser
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from company.task import check_and_generate_tasks
 from django_otp import devices_for_user
+from django.shortcuts import get_object_or_404
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -171,3 +172,91 @@ class VerifyTOTPView(APIView):
         if device and device.verify_token(otp):
             return Response({'message': '2FA verification successful'}, status=200)
         return Response({'error': 'Invalid OTP'}, status=400)
+    
+from django.http import JsonResponse
+class UserPhoneView(APIView):
+    """
+    API to retrieve a user's phone number from UserProfile.
+    """
+    def get(self, request, user_id):
+        user_profile = get_object_or_404(UserProfile, user_id=user_id)
+        return JsonResponse({"phone": user_profile.phone})
+
+
+
+from .whatsAppHelper import WhatsAppLoginHandler, WhatsAppHelpHandler, WhatsAppTaskHandler, WhatsAppUtils
+from django.core.cache import cache
+
+class WhatsAppView(APIView):
+    """
+    Handles WhatsApp login, task retrieval, and execution.
+    """
+
+    def post(self, request, *args, **kwargs):
+        sender = request.data.get("From")
+        message = request.data.get("Body", "").strip()
+        sender_phone = sender.replace("whatsapp:", "").strip()
+        self.media_url = request.data.get("MediaUrl0")
+
+        if message.lower().startswith("help"):
+            help_handler = WhatsAppHelpHandler(sender_phone, message)
+            return help_handler.process_help_request()
+
+        # ✅ Step 0: Initialize Login 
+        login_handler = WhatsAppLoginHandler(sender_phone, message)
+
+        # ✅ Step 1: Check if login is ongoing
+        # ✅ Step 1: Check if login is ongoing and pending confirmation
+        if cache.get(f"whatsapp_login_state_{sender_phone}") and cache.get(f"whatsapp_pending_confirmation_{sender_phone}"):
+            return login_handler.handle_login_confirmation()
+
+        # ✅ Step 2: Check if the user is logged in or needs authentication
+        user = login_handler.get_user() or login_handler.check_existing_login()
+
+        # ✅ Define user_id from retrieved user
+        user_id = user.id if user else None 
+
+        # ✅ Step 3: If a login request is detected, process it
+        if message.lower().startswith("login "):
+            cache.set(f"whatsapp_login_state_{sender_phone}", True, timeout=600)  # ✅ Login process starts
+            return login_handler.process_manual_login()
+
+        # ✅ Step 4: If using another staff’s phone, ask for login confirmation
+        if user and not login_handler.is_login_confirmed():
+            cache.set(f"whatsapp_login_state_{sender_phone}", True, timeout=600)  # ✅ Login process starts
+            return login_handler.welcome_and_confirm_login()
+
+        # ✅ Step 5: If user confirms login, handle their response
+        if message.strip() in ["1", "2"]:
+            response = login_handler.handle_login_confirmation() 
+            cache.delete(f"whatsapp_login_state_{sender_phone}")  # ✅ Login process ends
+            return response
+        
+        # ✅ Step 8: If a task is active, do NOT validate input
+        active_task = cache.get(f"whatsapp_task_active_{user_id}", None)
+        if active_task:
+            task_handler = WhatsAppTaskHandler(request)  # ✅ Initialize first to set `task_id`
+            return task_handler.process_whatsapp_task_step()  # ✅ Process task actions
+        
+        # ✅ Step 9: If a login request is detected, process it
+        if message.lower().startswith("start task"):
+             task_handler = WhatsAppTaskHandler(request)  # ✅ Initialize first to set `task_id`
+             #print(task_handler.user_id)
+             return task_handler.process_whatsapp_task_step()  # ✅ Now call function
+        
+        
+        # ✅ Validate Input - Return error if not part of recognized actions or active session
+        help_handler = WhatsAppHelpHandler(sender_phone, message)
+        invalid_input_response = help_handler.validate_input()
+        print(invalid_input_response)
+
+        if invalid_input_response:
+            return invalid_input_response
+
+        
+        # ✅ Step Final: Only send invalid input message if no active session
+        if not cache.get(f"whatsapp_task_active_{user_id}"):
+            return WhatsAppUtils.send_message(sender_phone, "❌ Invalid input. Send 'Help' for available commands.")
+
+        return Response({"message": "Task session active, awaiting input."}, status=200)
+

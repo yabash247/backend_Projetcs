@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    RegisterView, VerifyEmailView, PasswordRecoveryView, ResetPasswordView, UserProfileView, 
+    RegisterView, VerifyEmailView, PasswordRecoveryView, ResetPasswordView, UserProfileView, WhatsAppView,
     CustomTokenObtainPairView, UserListView, UserDetailView, EnableTOTPView, VerifyTOTPView, get_current_user
 )
 
@@ -20,6 +20,12 @@ urlpatterns = [
 
     path('totp/enable/', EnableTOTPView.as_view(), name='enable_totp'),
     path('totp/verify/', VerifyTOTPView.as_view(), name='verify_totp'),
+
+    path('whatsApp/', WhatsAppView.as_view(), name='whatsApp'),
+    
 ]
 
-
+from .views import UserPhoneView
+urlpatterns += [
+    path('<int:user_id>/phone/', UserPhoneView.as_view(), name='user-phone'),
+]

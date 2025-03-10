@@ -47,6 +47,18 @@ class PondAdmin(admin.ModelAdmin):
     search_fields = ('name', 'farm__name')
     list_filter = ('farm', 'type')
 
+
+
+from .models import PondMaintenanceLog
+@admin.register(PondMaintenanceLog)
+class PondMaintenanceLogAdmin(admin.ModelAdmin):
+    list_display = ('pond', 'maintenance_type', 'date', 'performed_by')
+    search_fields = ('pond__name', 'maintenance_type', 'performed_by__username')
+    list_filter = ('maintenance_type', 'date')
+    ordering = ('-date',)
+
+
+
 @admin.register(Batch)
 class BatchAdmin(admin.ModelAdmin):
     list_display = ('name', 'species', 'source', 'stocking_date', 'initial_quantity', 'initial_avg_weight', 'status')

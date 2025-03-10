@@ -26,3 +26,5 @@ def check_and_generate_tasks():
                 activity=activity.activity,
                 status="active",
             )
+
+

@@ -1,15 +1,22 @@
 from company.models import Media, Company, Staff
-from rest_framework import serializers, viewsets, generics, permissions
-from .models import Farm, Pond, Batch, BatchMovement, StockingHistory, DestockingHistory, StaffMember
+from rest_framework import serializers, viewsets, generics, permissions, filters
+from .models import Farm, Pond, Batch, BatchMovement, StockingHistory, DestockingHistory, StaffMember, PondMaintenanceLog
 from users.models import UserProfile as Profile  # If Profile is actually named UserProfile
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from django.db import models
 from django.db.models import Prefetch
 from rest_framework.permissions import IsAuthenticated
 from company.utils import has_permission
 from django.core.exceptions import PermissionDenied
-from .serializers import FarmSerializer, PondSerializer, BatchSerializer, BatchMovementSerializer, StockingHistorySerializer, DestockingHistorySerializer, StaffMemberSerializer
+from .serializers import FarmSerializer, PondSerializer, BatchSerializer, BatchMovementSerializer, StockingHistorySerializer, DestockingHistorySerializer, StaffMemberSerializer, PondMaintenanceLogSerializer
 import logging
+
+from django_filters.rest_framework import DjangoFilterBackend
+# Placeholder for notification logic
+def send_notification(user, message):
+    # Implement your notification logic here
+    pass
 
 logger = logging.getLogger(__name__)  # Set up logging
 
@@ -75,7 +82,6 @@ def validate_company_and_farm(request):
 
     return company, farm  # ✅ Return validated company and farm
     
-
 
 class FarmViewSet(viewsets.ModelViewSet):
     queryset = Farm.objects.all()
@@ -217,30 +223,143 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
 
 
 class PondViewSet(viewsets.ModelViewSet):
-    queryset = Pond.objects.all()
+    """
+    API endpoint for managing ponds in a user's company and farm.
+    """
     serializer_class = PondSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        """
+        Return only ponds that belong to the user's farm.
+        If `pond_id` is provided, return only that specific pond.
+        """
+        company, farm = validate_company_and_farm(self.request)
+
+        # ✅ Check if the user has permission to view ponds
+        if not has_permission(self.request.user, company, 'catFishFarm', 'Pond', 'view'):
+            raise PermissionDenied("You do not have permission to view ponds in this farm.")
+
+        pond_id = self.kwargs.get('pond_id')  # ✅ Retrieve pond ID from the URL if provided
+
+        # ✅ If pond_id is provided, return only that specific pond within the farm
+        if pond_id:
+            pond = Pond.objects.filter(id=pond_id, farm=farm).first()
+            if not pond:
+                raise PermissionDenied("Pond does not exist or is not associated with your farm.")
+            return Pond.objects.filter(id=pond.id)
+
+        # ✅ Otherwise, return all ponds for the farm
+        return Pond.objects.filter(farm=farm)
+
     def perform_create(self, serializer):
-        company = get_user_company(self.request.user)
+        """
+        Ensure the pond is created within the user's company and farm.
+        """
+        company, farm = validate_company_and_farm(self.request)
+
         if has_permission(self.request.user, company, 'catFishFarm', 'Pond', 'add'):
-            serializer.save()
+            serializer.save(farm=farm)  # ✅ Ensure farm is assigned
         else:
             raise PermissionDenied("You do not have permission to create ponds.")
 
     def perform_update(self, serializer):
-        company = get_user_company(self.request.user)
+        """
+        Ensure only users with permission can update a pond.
+        """
+        company, farm = validate_company_and_farm(self.request)
+
         if has_permission(self.request.user, company, 'catFishFarm', 'Pond', 'edit'):
-            serializer.save()
+            instance = serializer.save()
+            logger.info(f"Pond {instance.id} updated by {self.request.user} in farm {farm.id}")
         else:
             raise PermissionDenied("You do not have permission to update this pond.")
 
     def perform_destroy(self, instance):
-        company = get_user_company(self.request.user)
+        """
+        Ensure only users with permission can delete a pond.
+        """
+        company, farm = validate_company_and_farm(self.request)
+
         if has_permission(self.request.user, company, 'catFishFarm', 'Pond', 'delete'):
+            logger.info(f"Pond {instance.id} deleted by {self.request.user} in farm {farm.id}")
             instance.delete()
         else:
             raise PermissionDenied("You do not have permission to delete this pond.")
+
+
+# Placeholder for notification logic
+def send_notification(user, message):
+    # Implement your notification logic here
+    pass
+
+
+class PondMaintenanceLogViewSet(viewsets.ModelViewSet):
+    queryset = PondMaintenanceLog.objects.all()
+    serializer_class = PondMaintenanceLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['pond', 'maintenance_type', 'date']  # Allows filtering by pond, type, and date
+    search_fields = ['description']  # Enables text search
+
+    def get_queryset(self):
+        maintenance_id = self.request.query_params.get('id')
+        queryset = PondMaintenanceLog.objects.all()  # Ensure queryset is always initialized
+        maintenance_id = self.request.query_params.get('id')  # Get specific maintenance log if ID is provided
+        if maintenance_id:
+            queryset = PondMaintenanceLog.objects.filter(id=maintenance_id)
+            company_id = self.request.query_params.get('company')
+            companies = validate_company_and_farm(self.request)
+            
+            allowed_queryset = has_permission(self.request.user, companies if isinstance(companies, Company) else (companies[0] if isinstance(companies, (list, tuple)) and companies else None), 'catFishFarm', 'PondMaintenanceLog', 'view', requested_documents=queryset)
+            return queryset if allowed_queryset and isinstance(queryset, models.QuerySet) else PondMaintenanceLog.objects.none()
+        
+        company_id = self.request.query_params.get('company')
+        companies = validate_company_and_farm(self.request)
+
+        if isinstance(companies, Company):
+            queryset = self.queryset.filter(pond__farm__company=companies)
+        else:
+            queryset = self.queryset.filter(pond__farm__company__in=[company.id for company in companies] if isinstance(companies, (models.QuerySet, list, tuple)) else [companies.id])
+        
+        allowed_queryset = has_permission(self.request.user, companies if isinstance(companies, Company) else (companies[0] if isinstance(companies, (list, tuple)) and companies else None), 'catFishFarm', 'PondMaintenanceLog', 'view', requested_documents=queryset)
+        if isinstance(allowed_queryset, bool) and allowed_queryset:
+            return queryset  # Return the original filtered queryset if permission is granted
+        return allowed_queryset if isinstance(allowed_queryset, models.QuerySet) else PondMaintenanceLog.objects.none()
+        
+        
+
+
+    def perform_create(self, serializer):
+        if not has_permission(self.request.user, serializer.validated_data['pond'].farm.company, 'catFishFarm', 'PondMaintenanceLog', 'add'):
+            raise PermissionDenied("You do not have permission to log maintenance.")
+        
+        serializer.save(performed_by=self.request.user)
+        
+        # Send notification to farm owner about the maintenance log
+        send_notification(serializer.instance.pond.farm.created_by, f"New maintenance logged for {serializer.instance.pond.name}")
+
+    def perform_update(self, serializer):
+        maintenance_log = get_object_or_404(PondMaintenanceLog, id=self.kwargs['pk'])
+        if not has_permission(self.request.user, maintenance_log.pond.farm.company, 'catFishFarm', 'PondMaintenanceLog', 'edit'):
+            raise PermissionDenied("You do not have permission to update this maintenance log.")
+        
+        serializer.save()
+        
+        # Notify farm owner if maintenance was updated
+        send_notification(maintenance_log.pond.farm.created_by, f"Maintenance updated for {maintenance_log.pond.name}")
+
+    def perform_destroy(self, instance):
+        instance = get_object_or_404(PondMaintenanceLog, id=self.kwargs['pk'])
+        if not has_permission(self.request.user, instance.pond.farm.company, 'catFishFarm', 'PondMaintenanceLog', 'delete'):
+            raise PermissionDenied("You do not have permission to delete this maintenance log.")
+        
+        instance.delete()
+        
+        # Notify farm owner about deletion
+        send_notification(instance.pond.farm.created_by, f"Maintenance log deleted for {instance.pond.name}")
+
+
 
 class BatchViewSet(viewsets.ModelViewSet):
     queryset = Batch.objects.all()
