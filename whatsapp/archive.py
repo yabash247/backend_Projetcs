@@ -12,14 +12,13 @@ from django.apps import apps
 from datetime import timedelta
 import time
 import os
-import json
 from django.conf import settings
 from urllib.parse import urlencode
 from users.models import User, UserProfile
 from company.models import Task, Media, ActivityOwner
 from company.views import TaskListCreateView
 from company.serializers import TaskSerializer, ActivityOwnerSerializer
-import importlib
+
 
 
 def get_user_phone(user):
@@ -481,385 +480,41 @@ class WhatsAppTaskHandler:
         self.message = request.data.get("Body", "").strip().lower()
         self.media_url = request.data.get("MediaUrl0")
 
-        # ✅ Initialize error flag
-        self.has_error = False  
-
         # ✅ Step 1: Retrieve logged-in user from cache
         self.user_id = cache.get(f"whatsapp_logged_in_{self.sender_phone}")
 
         if not self.user_id:
             self.send_message("❌ You are not logged in. Please log in first.")
-            self.has_error = True
             return
 
-        # ✅ Retrieve active task ID
+        # ✅ Step 2: Retrieve stored task ID for the logged-in user
         stored_task_id = cache.get(f"task_{self.user_id}_id")
+
+        # ✅ Step 3: Extract Task ID from message if provided
         extracted_task_id = self.extract_task_id()
-        self.task_id = extracted_task_id if extracted_task_id else stored_task_id
+
+        # ✅ Step 4: Set Task ID correctly
+        if extracted_task_id:
+            self.task_id = extracted_task_id  # Use extracted task ID
+            cache.set(f"task_{self.user_id}_id", self.task_id)  # Store for future reference
+        elif stored_task_id:
+            self.task_id = stored_task_id  # Use stored task ID if extraction fails
+        else:
+            self.task_id = None  # No valid task ID found
+
+        print(f"🔍 Final Active Task ID: {self.task_id}")  # ✅ Debug print
 
         # ✅ Step 5: If no task ID is found, prompt user to start a task
         if not self.task_id:
             self.send_message("❌ No active task found. Please start with 'Start Task <TaskID>'.")
-            self.has_error = True
             return
         
-        # ✅ Fetch Task
-        self.task = Task.objects.filter(id=self.task_id).first()
-        if not self.task:
-            self.send_message("❌ Task not found. Please start a valid task.")
-            self.has_error = True
-            return
-            
-        # ✅ Retrieve Task Description from Cache (Ensures no redundant DB calls)
-        task_description = cache.get(f"task_description_{self.task_id}")
-        
-        if not task_description:
-            
-            #print(f"🔍 Switching to Task {self.task_id} - {self.task.title}")
-            
-            task_description = self.task.description.strip()
-            task_description = task_description.replace("'", '"')  # Replace single quotes with double quotes
-            cache.set(f"task_description_{self.task_id}", task_description, timeout=1800)  # Cache for 30 minutes
+        return
 
-            # ✅ Parse form schema from task description
-            try:
-                # ✅ Try parsing JSON directly
-                self.form_schema = json.loads(task_description)
-                
-            except json.JSONDecodeError as e:
-                print(f"⚠️ Initial JSON Parsing Error: {e}. Attempting fix...")
+        # ✅ Proceed to process the task if everything is valid
+        #self.process_whatsapp_task_step()
 
-                 # ✅ Second attempt: Replace single quotes only if JSON parsing fails
-                try:
-                    task_description_fixed = task_description.replace("'", '"') # Replace single quotes with double quotes
-                    self.form_schema = json.loads(task_description_fixed)
-                    print("✅ Fixed JSON format successfully.")
 
-                    # ✅ Save fixed version back to cache
-                    cache.set(f"task_description_{self.task_id}", task_description_fixed, timeout=1800)
-
-                except json.JSONDecodeError as e2:
-                    print(f"❌ JSON Parsing Failed Again: {e2}")
-                    self.send_message("❌ Task form configuration is invalid. Please contact support.")
-                    self.has_error = True
-                    return
-                
-            # ✅ Validate schema structure
-            if not isinstance(self.form_schema, dict) or "fields" not in self.form_schema:
-                self.send_message("❌ Task form configuration is missing required fields.")
-                self.has_error = True
-                return
-
-            #print(f"✅ Loaded Form Schema for Task {self.task_id}")
-            
-    
-    def process_task_step(self):
-        """
-        Handles dynamic step-by-step WhatsApp task execution based on form configuration.
-        """
-
-        if self.has_error:
-            return  # ✅ Prevents further processing if __init__() encountered an error
-
-        # ✅ Ensure the task is in progress
-        cache.set(f"whatsapp_task_active_{self.user_id}", True, timeout=900)  # Task is active for 15 minutes   
-
-        task_id = cache.get(f"task_{self.user_id}_id")
-
-        if not task_id:
-            return self.send_message("❌ No active task found. Please start a task first.")
-
-        # ✅ Retrieve task form description from cache
-        task_description = cache.get(f"task_description_{task_id}")
-
-        if not task_description:
-            return self.send_message("❌ Task form configuration is missing.")
-
-        try:
-            form_data = json.loads(task_description)  # Convert JSON string to dictionary
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON Parsing Error: {e}")
-            return self.send_message("❌ Task form configuration is invalid.")
-
-        fields = form_data.get("fields", [])
-        if not fields:
-            return self.send_message("❌ No fields found in task form.")
-
-        # ✅ Get the current step dynamically
-        current_step = self.get_current_step(task_id)
-        print(f"🔄 Processing Step(s): {current_step} for Task {task_id}")
-
-        # ✅ Check if all fields are completed
-        if current_step >= len(fields):
-            return self.submit_task()
-
-        # ✅ Get the field for the current step
-        current_field = fields[current_step]
-        print(f"🔍 Current Field: {current_field}")
-
-        # ✅ Prompt the user for input if they haven't provided it
-        if "start task" not in self.message.lower():
-
-            # ✅ Validate user input before storing & moving to the next step
-            validation_response = self.validate_user_input(current_field, task_id)
-            if validation_response:
-                return validation_response  # ✅ Return error message if validation fails
-            
-        else:
-            return self.ask_next_step(current_field)
-
-
-        # ✅ Move to the next step **after validation**
-        self.set_next_step(task_id, current_step + 1)
-
-        # ✅ If more fields remain, prompt for the next field
-        if current_step + 1 < len(fields):
-            next_field = fields[current_step + 1]
-            return self.ask_next_step(next_field)
-    
-        # ✅ If all fields are completed, proceed to submission
-        return self.submit_task()
-
-
-    def validate_user_input(self, current_field, task_id):
-        """
-        Validates user input based on field type and constraints.
-        Returns an error message if validation fails; otherwise, stores input and proceeds.
-        """
-
-        # ✅ Extract field metadata
-        field_name = current_field.get("name")
-        field_label = current_field.get("label")
-        field_type = current_field.get("type")
-        is_required = current_field.get("required", False)
-        is_multiple = current_field.get("multiple", False)
-        check_existence = current_field.get("checkIfExisit", None)
-
-        user_input = self.message.strip()
-
-        if field_type == "date":
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", user_input):
-                return self.send_message(f"❌ Invalid format! Please enter *{field_label}* in YYYY-MM-DD format.")
-
-        elif field_type == "decimal":
-            try:
-                float(user_input)
-            except ValueError:
-                return self.send_message(f"❌ Invalid input! Please enter a numeric value for *{field_label}*.")
-
-        elif field_type == "dropdown":
-            options = current_field.get("options", [])
-            if user_input.capitalize() not in options:
-                return self.send_message(f"❌ Invalid selection! Choose one of: {', '.join(options)} for *{field_label}*.")
-
-        elif field_type == "text" and is_required and not user_input:
-            return self.send_message(f"❌ {field_label} is required. Please enter a valid value.")
-
-        # ✅ Check existence if applicable
-        if check_existence:
-            if not self.validate_existence(field_name, check_existence, user_input):
-                return self.send_message(f"❌ {field_label} does not exist. Please enter a valid value.")
-
-        # ✅ Handle multiple inputs (if enabled)
-        if is_multiple:
-            stored_values = cache.get(f"task_{self.user_id}_{task_id}_{field_name}", [])
-            stored_values.append(user_input)
-            cache.set(f"task_{self.user_id}_{task_id}_{field_name}", stored_values)
-            return self.send_message(f"✅ Added '{user_input}' for *{field_label}*. Type 'NEXT' to proceed or enter another value.")
-
-        # ✅ Store user input for required fields
-        cache.set(f"task_{self.user_id}_{task_id}_{field_name}", user_input) 
-
-        return None  # ✅ Validation passed, no error message needed
-
-    def get_current_step(self, task_id):
-        """
-        Retrieves the current step for a given task from the cache.
-        If not found, initializes it at step 0.
-        """
-        step_key = f"whatsapp_step_{self.user_id}_{task_id}"
-        print(f"🔍 Checking for Step: {step_key}")  # ✅ Debugging print
-        current_step = cache.get(step_key) 
-        print(f"🔄 Current Step from Cache is: {current_step}")  # ✅ Debugging print
-        
-        # ✅ Handle invalid string values like "start_task"
-        if isinstance(current_step, str) and not current_step.isdigit():
-            print(f"⚠️ Invalid step value ('{current_step}') found. Resetting Task {task_id} to Step 0.")
-            self.set_next_step(task_id, 0)  # Reset step
-            return 0  # Reset to the first step if conversion fails
-
-        try:
-            step_int = int(current_step)
-            print(f"🔍 Current Step for Task {task_id}: {step_int}")  # ✅ Debugging print 
-            return step_int
-        except ValueError:
-            print(f"⚠️ Step conversion failed. Resetting Task {task_id} to Step 0.")
-            self.set_next_step(task_id, 0)  # Reset step
-            return 0  # Reset to the first step if conversion fails
-
-    def set_next_step(self, task_id, next_step):
-        """
-        Updates the current step for a given task in the cache.
-        """
-        step_key = f"whatsapp_step_{self.user_id}_{task_id}"
-        cache.set(step_key, next_step, timeout=900)  # Keep task active for 15 minutes
-        print(f"✅ Step Updated: Task {task_id} -> Next Step: {next_step}")  # ✅ Debugging print
-
-         # ✅ Verify cache update
-        confirm_step = cache.get(step_key)
-        print(f"🔄 Step Confirmation from Cache: {confirm_step}")  # ✅ Ensure step is updated
-        if str(confirm_step) != str(next_step):
-            print(f"⚠️ Step update failed! Expected {next_step}, but got {confirm_step}. Retrying...")
-            cache.set(step_key, str(next_step), timeout=900)  # Retry cache update
-
-
-    def ask_next_step(self, field):
-        """
-        Sends the next question to the user based on the step and field attributes.
-        """
-
-        field_label = field["label"]
-        field_type = field["type"]
-        is_required = field.get("required", False)
-        is_multiple = field.get("multiple", False)
-
-        question_text = f"🔹 *{field_label}*: "
-
-        if field_type == "date":
-            question_text += "📅 Please enter the date (YYYY-MM-DD)."
-        elif field_type == "decimal":
-            question_text += "⚖️ Please enter a numeric value."
-        elif field_type == "text":
-            question_text += "✏️ Please enter a text value."
-        elif field_type == "dropdown":
-            options = ", ".join(field.get("options", []))
-            question_text += f"📋 Choose one: {options}."
-        elif field_type == "media":
-            question_text = "📸 Upload an image/video or type 'SKIP' to continue."
-
-        # ✅ Handle Multiple Inputs
-        if is_multiple:
-            question_text += "\n🛠️ You can add multiple values. Type 'NEXT' to proceed after adding all."
-
-        # ✅ Ensure Required Fields are Addressed
-        if is_required:
-            question_text += "\n*⚠️."
-
-        return self.send_message(question_text)
-
-
-    def validate_existence(self, field_name, check_conditions, user_input):
-        """
-        Checks if a field exists in the database before allowing input.
-        Dynamically validates model records based on given criteria.
-        """
-
-        model_name = check_conditions.get("model")
-        app_name = check_conditions.get("appName")
-        status = check_conditions.get("status", "active")  # Default to active status
-        search_field_template = check_conditions.get("search_field", "")
-
-        if not model_name or not app_name or not search_field_template:
-            print(f"⚠️ Missing validation details for {field_name}. Skipping existence check.")
-            return True  # ✅ Skip validation if details are incomplete
-
-        Model = apps.get_model(app_name, model_name)
-
-        # ✅ Replace wildcard (*) in field search template with actual user input
-        search_field = search_field_template.replace("*", user_input)
-
-        # ✅ Perform database query
-        record_exists = Model.objects.filter(**{search_field: user_input, "status": status}).exists()
-
-        if not record_exists:
-            print(f"❌ {field_name} validation failed. Value '{user_input}' does not exist in {model_name}.")
-        return record_exists
-
-    # ✅ Submit the task and call the dynamic function for processing
-    def submit_task(self):
-        """
-        Submits the collected task form data and calls a dynamic function for final processing.
-        """
-        try:
-            task_id = self.task_id  # ✅ Ensure task ID is used dynamically
-            task = Task.objects.filter(id=task_id).first()
-
-            if not task:
-                return self.send_message("❌ Task not found. Please start a valid task.")
-
-            # ✅ Retrieve all field values dynamically
-            task_description = cache.get(f"task_description_{task_id}")
-            form_data = json.loads(task_description) if task_description else {}
-            fields = form_data.get("fields", [])
-
-            # ✅ Store collected data
-            collected_data = {}
-
-            for field in fields:
-                field_name = field.get("name")
-                is_multiple = field.get("multiple", False)
-                value = cache.get(f"task_{self.user_id}_{task_id}_{field_name}")
-
-                if is_multiple:
-                    collected_data[field_name] = value if value else []
-                else:
-                    collected_data[field_name] = value if value else ""
-
-
-            # ✅ Handle media field separately
-            media_url = cache.get(f"task_{self.user_id}_{task_id}_media", None)
-            if media_url:
-                print(f"📥 Downloading media from Twilio: {media_url}")
-                media_file_path = download_media_from_twilio(media_url)
-                if media_file_path:
-                    collected_data["media"] = media_file_path  # ✅ Store media file path
-                else:
-                    collected_data["media"] = None  # ✅ If media download failed
-
-
-            # ✅ Validate required fields
-            missing_fields = [field["label"] for field in fields if field.get("required", False) and not collected_data.get(field["name"])]
-            if missing_fields:
-                return self.send_message(f"❌ Some required fields are missing: {', '.join(missing_fields)}. Please complete all steps.")
-
-            print(f"📤 Task Data Ready for Processing: {collected_data}")
-
-            # ✅ Call dynamic processing function: `{appName}.whatsapp.{ModelName}`
-            try:
-                module_path = f"{task.appName}_whatsapp.whatsapp"
-                function_name = task.modelName  # The function should match the model name
-                module = importlib.import_module(module_path)
-
-                self.send_message("✅ Submitting Task, please wait!...")
-
-                # ✅ Check if the function exists in the module
-                if hasattr(module, function_name):
-                    process_function = getattr(module, function_name)
-                    task_approved = process_function(task_id=task_id, processed_data=collected_data, user_id=self.user_id)
-                    if task_approved:
-                        # ✅ Clear session-related caches after task submission
-                        cache.delete(f"whatsapp_step_{self.user_id}_{task_id}")  # ✅ Clear step tracking
-                        cache.delete(f"task_{self.user_id}_id")  # ✅ Clear active task ID
-                        self.send_message("✅ You have  sucessefully completed Task...")
-                        #cache.delete(f"whatsapp_task_active_{self.user_id}")  # ✅ Clear active task flag
-                        print(f"✅ Successfully called dynamic function: {module_path}.{function_name}")
-                        return Response({"message": "Task successfully submitted"}, status=200)
-                else:
-                    print(f"⚠️ Function {function_name} not found in {module_path}. Skipping dynamic processing.")
-                    self.send_message("❌ Task processing function is invalid!!")
-                    return Response({"message": "Task processing function is invalid!!"}, status=500)
-            except ModuleNotFoundError as e:
-                print(f"⚠️ Module not found: {e}. Skipping dynamic processing.")
-                self.send_message("❌ Unsucessful!!! Something went wrong while trying to submit task!")
-                return Response({"message": "Something went wrong!"}, status=500)
-
-            # ✅ Inform user that submission is in progress
-            
-        except Exception as e:
-            print(f"❌ Error in submit_task: {e}")
-            return Response({"error": "Task submission failed"}, status=500)
-
-        
     def process_whatsapp_task_step(self):
         """
         Handles step-by-step WhatsApp task data collection dynamically.
@@ -975,12 +630,11 @@ class WhatsAppTaskHandler:
             task_id = int(match.group(1))
             print(f"🔄 Switching to Task {task_id}")
             cache.set(f"task_{self.user_id}_id", task_id)  # Update active task
-            cache.set(f"whatsapp_step_{self.user_id}_{task_id}", 0)  # Ensure the new task starts fresh 
+            cache.set(f"whatsapp_step_{self.user_id}_{task_id}", "start_task")  # Ensure the new task starts fresh
             return task_id
         return None
 
-    def ask_next_steps(self, step):
-        
+    def ask_next_step(self, step):
         """
         Guides the user through the form one step at a time.
         """
@@ -1015,7 +669,7 @@ class WhatsAppTaskHandler:
         print(f"📤 Sent WhatsApp Message to {self.sender_phone}: {message_body}")
         return Response({"message": "WhatsApp message sent"}, status=200)
 
-    def submit_tasks(self):
+    def submit_task(self):
         """
         Submits the collected task form data.
         """

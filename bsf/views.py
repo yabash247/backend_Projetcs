@@ -2374,71 +2374,6 @@ class PondUseStats(APIView):
         # If no valid stage, return a Response
         return Response({"error": "Invalid 'stage' parameter."}, status=status.HTTP_400_BAD_REQUEST)
 
-    '''
-           
-    def _start_activity(self, request):
-        print("""********Handle the start of an activity.********""")
-        layer_index = 0
-        while f"pond_{layer_index}" in request.data:
-            pond_id = request.data.get(f"pond_{layer_index}"); #print(f"pond_id: {pond_id}")
-            start_date = request.data.get(f"startDate_{layer_index}"); #print(f"start_date: {start_date}")
-            start_Weight = request.data.get(f"startWeight_{layer_index}"); #print(f"start_weight: {start_Weight}")
-
-            if not pond_id or not start_date or not start_Weight:
-                raise ValidationError(
-                    f"'pond_{layer_index}', 'startDate_{layer_index}', and 'startWeight_{layer_index}' are required for starting an activity."
-                )
-            
-            pond = get_object_or_404(Pond, id=pond_id, farm=self.farm, company=self.company, status="Active"); #print(f"Pond: {pond}")
-            if not pond:
-                raise ValidationError(f"Pond '{pond_id}' does not exist or is not active.")
-            
-            self.pond = pond
-
-            exisitngPondUseStats = PondUseStatsModel.objects.filter(pond=pond, status="Ongoing").first(); 
-            if exisitngPondUseStats is not None:
-                print(f"Existing Pond Use Stats: {exisitngPondUseStats}")
-                if exisitngPondUseStats.batch == self.batch and exisitngPondUseStats.company == self.company and exisitngPondUseStats.farm == self.farm:
-                    if self.activity in ["Incubation", "Nursery"] and self.endOrStart == "Start":
-                        exisitngPondUseStats.harvest_stage = self.activity
-                        exisitngPondUseStats.start_weight = start_Weight + exisitngPondUseStats.start_weight
-                        exisitngPondUseStats.comments += f"\n{request.user} updated data {exisitngPondUseStats} by adding {start_Weight} from net for batch {self.batch.batch_name} on {now()}"
-                        exisitngPondUseStats.save()
-                    raise ValidationError(f"Pond '{pond.pond_name}' already has an ongoing activity for the same batch, company, and farm.")
-                
-                raise ValidationError(f"Pond '{pond.pond_name}' already has an ongoing activity.")
-            
-            else:
-                print (self.common_data["batch"])
-                pond_use_stats = PondUseStatsModel.objects.create(
-                    pond=self.pond,
-                    farm=self.farm,
-                    company=self.company,
-                    batch=self.batch,
-                    start_date=start_date,
-                    start_weight=start_Weight,
-                    harvest_stage=self.activity,
-                    status="Ongoing",
-                    created_by=request.user,
-                )
-            
-            self.pond_use_stats = pond_use_stats
-            print(f"layer_index: {layer_index}")
-            self._handle_layer_media(request, pond_use_stats.id, layer_index)
-            self.completeDetails += f"[ - appName=bsf, modelName=PondUseStats, modelId={pond_use_stats.id}, activity={self.activity}, filledOut=start_date, start_weight]"
-            
-            self._complete_task_and_create_next(request)
-
-            layer_index += 1
-
-        
-    
-        return Response(
-            {"detail": f"{self.activity} activity started successfully for batch:{self.batch.batch_name}."},
-            status=status.HTTP_201_CREATED,
-        )
-    
-    '''
     def _start_activity(self, request):
         print("********Handle the start of an activity.********")
         layer_index = 0
@@ -2609,100 +2544,6 @@ class PondUseStats(APIView):
                 print(f"Task: {task}")
         return self._create_next_task()
     
-    '''
-    def _create_next_task(self):
-        """Create the next task in the workflow."""
-        #print("********Create the next task in the workflow.********")
-        activity_order = ["Incubation", "Nursery", "Growout", "PrePuppa", "Puppa"]
-        current_activity = self.activity; #print(f"Current Activity: {current_activity}")
-
-        
-        
-
-        description = ""
-
-        
-        if self.endOrStart == "Start":
-            next_stage = "End"
-            next_activity = current_activity
-            description=f"""
-                Task Details:
-                - Batch: {self.batch.batch_name}
-                - model_id : {self.pond_use_stats.id}
-                - Pond: {self.pond.pond_name}
-                - Activity: {next_activity}
-                - Stage: {next_stage}
-                - Required:
-                    - Harvest Date
-                    - Harvest Weight
-                    - Stats: completed
-                    - Media: True for points allocation
-                """
-        elif self.endOrStart == "End":
-            if not hasattr(self, 'dataToSave'):
-                print(f"End or Start: {self.endOrStart}")
-                return Response(
-                    {"detail": "Cannot create the next task. Missing pond or pond use stats."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            print(f"Current Activity: {current_activity}")
-            savedPond = self.dataToSave.pond
-            try:
-                next_activity = activity_order[activity_order.index(current_activity) + 1]
-                next_stage = "Start"
-                description=f"""
-                Task Details:
-                - Batch: {self.batch.batch_name}
-                - Pond_use_stats: {self.dataToSave.id}
-                - Pond: {savedPond.pond_name}
-                - Activity: {next_activity}
-                - Stage: {next_stage}
-                - Required:
-                    - Set Date
-                    - Start Weight
-                    - Pond
-                    - Stats: ongoing
-                    - Media: True for points allocation
-                """,
-            except (ValueError, IndexError):
-                # Workflow completed
-                return Response(
-                    {"detail": "No next activity available. Workflow completed."},
-                    status=status.HTTP_200_OK,
-            )
-
-        # Fetch duration settings
-        duration_setting = DurationSettings.objects.filter(company=self.company, farm=self.farm).first()
-        task_due_date = now() + timedelta(days=getattr(duration_setting, f"{next_activity.lower()}_duration", 3))
-
-        # Fetch the activity owner for the next task
-        activity_owner = ActivityOwner.objects.filter(
-            company=self.company, branch=self.branch, activity=next_activity, status="active"
-        ).first()
-
-        
-
-        # Create the next task in the workflow
-        Task.objects.create(
-            company=self.company,
-            branch=self.branch,
-            title=f"{next_stage} - {next_activity} activity for batch {self.batch.batch_name}",
-            description= description,
-            due_date=task_due_date,
-            assigned_to=activity_owner.owner if activity_owner else None,
-            assistant=activity_owner.assistant if activity_owner else None,
-            appName="bsf",
-            modelName="PondUseStats",
-            activity=next_activity,
-            status="active",
-        )
-
-        return Response(
-            {"detail": f"Next task created for {next_activity} activity for batch: {self.batch.batch_name}."},
-            status=status.HTTP_201_CREATED,
-        )
-
-    '''
     
     def _create_next_task(self):
         """Create the next task in the workflow."""
@@ -3181,3 +3022,16 @@ class WhatsAppTaskView(APIView):
             print(f"❌ Error in submit_task: {e}")
             return Response({"error": "Task submission failed"}, status=500)
  
+
+from bsf.whatsapp import PondUseStats_whatsapp  # Import the PondUseStats_whatsapp function
+class WhatsAppTaskTest(APIView):
+    """
+    Handles WhatsApp task interactions for starting, completing, and notifying users.
+    """
+
+    def post(self, request, *args, **kwargs):
+        processed = {'set_date': '2025-03-10', 'Start_Weight': '5', 'pond_name': 'a2', 'net_condition': 'good', 'media': ''}
+        task_id = 55
+        user_id = 2
+        PondUseStats_whatsapp(task_id, processed, user_id)
+        return Response({"message": "WhatsApp task processed"}, status=200)

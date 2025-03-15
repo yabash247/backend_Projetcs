@@ -1,359 +1,629 @@
 
+class WhatsAppTaskHandler:
+    """
+    Handles WhatsApp task interactions for starting, completing, and notifying users.
+    """
 
+    def __init__(self, request):
+        """
+        Extract WhatsApp request data and validate session continuity.
+        """
+        self.sender_phone = request.data.get("From", "").replace("whatsapp:", "").strip()
+        self.message = request.data.get("Body", "").strip().lower()
+        self.media_url = request.data.get("MediaUrl0")
 
-            Requirements: 
-            1. Sidebar Nav  left hand corner like that of youtube.com. same fuctionality. 
-            2. Task Components 
-                i. in carousel formart(5carousel) with tabs(past due(icon number), current) at the top show most critical task: due now and in decending order, 
-                second i need when you log in to see the most current task to do 
-            third i want the website to be usable on mobile 
-            fourth make it that when you log in you see how many points you have on the top right corner 
-            fifth make it that for ever task it shows what you would cost the company if you don"t do it
-            sixth make it easy to submit you task '
-            seventh let the user see all the taske he has completed in a box so if he miss clicks and need to redo it he can
-            eigthth make the website look more alive and more like a website if you need more help with what it should look like ask and i will tell a website
-            nineth for task list there should be at search bar 
-            tenth we want to see a cariso that displaces critical/ timesensitive tasks
-            eleventh like a table list that shows completed task, uncompleted task, failed task to complete and past task
-            twelveth on the bottom right corner include a button that lets the user to make task and for the manager to be able to give the task to a worker/user
-            Last on the to right corner next to the points show a button where the user can convert the points in to money of any currency and let the manager accept it
+        # ✅ Initialize error flag
+        self.has_error = False  
 
+        # ✅ Step 1: Retrieve logged-in user from cache
+        self.user_id = cache.get(f"whatsapp_logged_in_{self.sender_phone}")
 
+        if not self.user_id:
+            self.send_message("❌ You are not logged in. Please log in first.")
+            self.has_error = True
+            return
 
+        # ✅ Retrieve active task ID
+        stored_task_id = cache.get(f"task_{self.user_id}_id")
+        extracted_task_id = self.extract_task_id()
+        self.task_id = extracted_task_id if extracted_task_id else stored_task_id
 
-                        
+        # ✅ Step 5: If no task ID is found, prompt user to start a task
+        if not self.task_id:
+            self.send_message("❌ No active task found. Please start with 'Start Task <TaskID>'.")
+            self.has_error = True
+            return
+        
+        # ✅ Fetch Task
+        self.task = Task.objects.filter(id=self.task_id).first()
+        if not self.task:
+            self.send_message("❌ Task not found. Please start a valid task.")
+            self.has_error = True
+            return
+            
+        # ✅ Retrieve Task Description from Cache (Ensures no redundant DB calls)
+        task_description = cache.get(f"task_description_{self.task_id}")
+        
+        if not task_description:
+            
+            #print(f"🔍 Switching to Task {self.task_id} - {self.task.title}")
+            
+            task_description = self.task.description.strip()
+            task_description = task_description.replace("'", '"')  # Replace single quotes with double quotes
+            cache.set(f"task_description_{self.task_id}", task_description, timeout=1800)  # Cache for 30 minutes
 
+            # ✅ Parse form schema from task description
+            try:
+                # ✅ Try parsing JSON directly
+                self.form_schema = json.loads(task_description)
                 
+            except json.JSONDecodeError as e:
+                print(f"⚠️ Initial JSON Parsing Error: {e}. Attempting fix...")
 
-        
+                 # ✅ Second attempt: Replace single quotes only if JSON parsing fails
+                try:
+                    task_description_fixed = task_description.replace("'", '"') # Replace single quotes with double quotes
+                    self.form_schema = json.loads(task_description_fixed)
+                    print("✅ Fixed JSON format successfully.")
 
-                       
+                    # ✅ Save fixed version back to cache
+                    cache.set(f"task_description_{self.task_id}", task_description_fixed, timeout=1800)
 
+                except json.JSONDecodeError as e2:
+                    print(f"❌ JSON Parsing Failed Again: {e2}")
+                    self.send_message("❌ Task form configuration is invalid. Please contact support.")
+                    self.has_error = True
+                    return
+                
+            # ✅ Validate schema structure
+            if not isinstance(self.form_schema, dict) or "fields" not in self.form_schema:
+                self.send_message("❌ Task form configuration is missing required fields.")
+                self.has_error = True
+                return
 
-
-            Important Instruction:
-                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
-                2.  Provide complete updated files, preserving all existing logic and code that doesn't need modification. 
-                        The changes should focus solely on fixing the reported requirements while retaining the original implementation.
-                3.  Provide the complete updated files for my project:  
-                        Each file should include existing code, along with modifications or additions due to the new requirements. 
-                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
-                3. Ask if you need to review additional files that we might have to help you in updating the code
-
-
-
-            Existing data:
-
-
-
-
-Requirement : 
-    create a reusable component where manager can review task completed by its staff and approve, make comments or reject. 
-    
-    each task display should have a review button
-    task details when clicked shall be a modal that contains and dispaly task data as well as 
-        task.completeDetails desphered 
-
-    All task needing to be reviewed by manager shall be requested as such:
-     use getTasks = createAsyncThunk where ?manager=true 
-
-        sample data 
-        {
-                "id": 7,
-                "farm": "8",
-                "appName": "bsf",
-                "modelName": "NetInUse",
-                "dataQuantity": 1,
-                "activity": "Laying_Start",
-                "title": "Need to add Net Use Start Info for Batch AA110",
-                "description": "Task Details:\r\n        - App Name: 'Bsf'\r\n        - Model Name: 'NetInUse'\r\n        - Company: YABASH INTEGRATED FARM\r\n        - Batch: AA110\r\n        - Farm: PH BSF FARM - RUKPURKO\r\n        - Lay Start: ?\r\n        - Stats: Ongoing\r\n        - Media: True for points allocation",
-                "due_date": "2024-12-22T02:14:18Z",
-                "status": "rewardGranted",
-                "completed_date": "2025-01-04T05:38:00Z",
-                "completeDetails": "[ - appName = bsf,  - modelName = NetInUse, - modelId = 140,  - activity = Laying_Start, - filledOut = lay_start] [ - appName = bsf,  - modelName = NetInUse, - modelId = 141,  - activity = Laying_Start, - filledOut = lay_start]",
-                "approved_date": "2025-01-03T05:38:09Z",
-                "created_at": "2024-12-24T02:14:18.372291Z",
-                "appealReason": "could not complete task videos because of no network",
-                "company": 5,
-                "branch": 1,
-                "assigned_to": 15,
-                "assistant": 17,
-                "completed_by": 15,
-                "approved_by": 16
-            }
-
-
-
-    First shall be a display of all task needing managers approval. each task shalll have a review button that on click opens up a modal with 
-        
-        Get all ponds.
-            Check remove from list any pond that has an ongoing status with pondUseStats
-            Check remove from list any pond that has an broken or inactive status with ponds
-            React : if ?Nursery or ?Incubation wanting to be put in Growout pond, warn user and send notification to users manager.
-            Display batch info
-
-        Add to batch.
-
-
-        on add 
-        
-        Requirements: create slice, state etc to retrive edit NetUseStats from endpoint.
-
-            endpoint url : `${backendUrl}/api/bsf/duration-settings/?company=${company}&farm=${farm}`
-
-            accessToken needed and shall be requested in the slice through rootstate.
-
-            sample of data retured in sucessfull request :
-                [
-                    {
-                        "id": 3,
-                        "laying_duration": 4,
-                        "nursery_duration": 3,
-                        "incubation_duration": 4,
-                        "growout_duration": 5,
-                        "puppa_in_net_replenishment_duration": 3,
-                        "feed1_fermentation_period": 15,
-                        "feed2_fermentation_period": 5,
-                        "attractant_duration": 3,
-                        "general_inspection_duration": 15,
-                        "net_cleanup_duration": 14,
-                        "company": 5,
-                        "farm": 8
-                    }
-                ]
-
-
-            Important Instruction:
-                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
-                2.  Provide the complete updated files for my project:  
-                        Each file should include existing code, along with modifications or additions due to the new requirements. 
-                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
-
+            #print(f"✅ Loaded Form Schema for Task {self.task_id}")
             
-
-            Existing data:
-                    
-        
-        Can I provide you my current class netUseStatsSlice.ts code? I would like you to carefully review and remember it.  
-        After making the required changes, I please provide you with a complete, updated file that I can easily copy and replace without any missing parts.  
-
-        I made some changes to the overall file, can I provide you the revised file so you can memorize and use the revised file hence fort to make futher updates ?
-
-        Media Upload Array workarround 
-            To work around the flat structure of media files and related metadata, you can dynamically extract 
-            the indices from the keys in the request data and then group the values by matching indices.
-
-
-         Requirements : Create a pond model. 
-                This would be a pond where black soldier flies are raised. 
-                pondTypes (concrte, Rubber-Tire.)
-                pond must belong to a farm in a company.
-                The name of the pond must be unique to that farm and company. 
-                The pond should also have dimensions values for (width, length, depth) and shape (circular, rectangular, square) 
-                farm instance from Farm model (id=farm)
-                company instance from company.Compay model (id=company)
-                ponds Use (Incubator, Nursery, Grow Out, Multiple )  
-                created date = now 
-                pondName
-                status (active, inactive, broken) 
-                comments 
-                created By = user instance from users.user model
-
-
-
-Updated method ensures the logic includes:
-
-    Change this too : # Filter by !"ongoing" status in NetUseStats : change the filtering logic so it excludes entries with an "ongoing" status in NetUseStats
-    include Net objects that aren't found in NetUseStats.objects alongside filtering out those with an "ongoing" status
-
-    1. Nets Not in NetUseStats.
-    2. Nets in NetUseStats but not marked as ongoing
-
-
-
-Here's the updated BatchDetailsModal.tsx file that integrates fetching NetUseStats when the "Laying" radio button is selected. 
-    It uses the fetchNetUseStats thunk to populate the payload result into the selectedOption view.
-
-
-Enhance Authority Model, Serializer and Views :
-  1. Notify logged in user of all model that has specified company data in but not included in authority model.
-      a. Check if has_permission 
-      b. Prevent multiple additions of the same model_name for a specific company
-          i.    A specific model_name cannot be added multiple times for the same company.
-          ii.   Existing authority data can be modified.
-          iii.  The model_name field cannot be changed once created.
-      c. Include the app_name when validating permissions.
-      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
-      e. has_permission(user, company, app_name, model_name, action, min_level=1): requires app_name please update views class accordingly.
-      f. EditAuthorityView(generics.RetrieveUpdateAPIView): do not allow change of model_name in edit
-
-
-
-Update FarmDetail : 
-        1. Add a modal that on click opens StaffMemberList : <Route path="/staff-members/:appName/:companyId/:farmId/:userId?" element={<StaffMemberList />}/>
-            include 
-
-    Important Instruction:
-        1.The changes should be made in the same class, preserving the original implementation structure.
-
-
-    Exisiting data:
     
-
-create a def validate function for the StaffMember model serializer:
-            1. Check if user provided in data.get, is a valid user in users.model import User 
-            2. Check if user is a staff (Staff(models.Model)) of company (companyId)
-            3. Check if company provided in data.get, is valid (Company(models.Model))
-            4. Check if farrm provided in data.get, is valid (class Farm(models.Model))
-            5. Check in (class Farm(models.Model)) if farm belongs to company 
-            6. if all true create/save data
-            7. If exisitng user with same company, same farm, same position, same level and same status(active) as new do not save. send waring
-            8. If exisitng user with same company, same farm, but different position, and/or level, change exisitng status to inactive and save new
-            9. Run has_permission function. (from company.utils import has_permission)
-            
-create comprehensive implementation of all the required updates in the relevant files
-
-Create Endpoint Views to Retrieve, update, or delete a specific staff member:
-    Retrieve all staff members of comany and farm instance if not userID is provided. 
-
-Important Instruction:
-    1.The changes should be made in the same class, preserving the original implementation structure.
-
-Create StaffMember Slice 
-    1a. appName needs to be sent when requesting staffMember slice
-            api end point is : ${backendURL}/api/${appName}/branch/?company=${companyId}&farm=${farmId}&user=${userId}. 
-            &user=${userId} as optional.
-    1. aceesstoken needed in api endpoint request,  
-    2. aceesstoken should be requested in the slice by Rootstate
-    3. Create needed state as well.
-    4. provide app.tsx update 
-Create StaffMember List component 
-    1. Provide an amazing material deisgn display
-    2. 
-
-Exisiting data:
-        
-
-Enhance Authority Model, Serializer and Views :
-  1. Notify logged in user of all model that has specified company data in but not included in authority model.
-      a. Check if has_permission 
-      b. Prevent multiple additions of the same model_name for a specific company
-          i.    A specific model_name cannot be added multiple times for the same company.
-          ii.   Existing authority data can be modified.
-          iii.  The model_name field cannot be changed once created.
-      c. Include the app_name when validating permissions.
-      d. Exclude models from specified apps (admin, auth, contenttypes, etc.) in the missing_models list of the GET view.
-
-  Important Instruction:
-    1.  The changes should be made in the same class, preserving the original implementation structure.
-    2.  Provide the complete implementation
-    
-
-  Exisiting data:
-  
-
-
-
-
-    def get_queryset(self):
+    def process_task_step(self):
         """
-        Filters NetUseStats by company and optionally by farm.
+        Handles dynamic step-by-step WhatsApp task execution based on form configuration.
         """
-        company_id = self.request.query_params.get("company")
-        farm_id = self.request.query_params.get("farm")
 
-        if not company_id:
-            raise PermissionDenied("'company' query parameter is required.")
+        if self.has_error:
+            return  # ✅ Prevents further processing if __init__() encountered an error
+
+        # ✅ Ensure the task is in progress
+        cache.set(f"whatsapp_task_active_{self.user_id}", True, timeout=900)  # Task is active for 15 minutes   
+
+        task_id = cache.get(f"task_{self.user_id}_id")
+
+        if not task_id:
+            return self.send_message("❌ No active task found. Please start a task first.")
+
+        # ✅ Retrieve task form description from cache
+        task_description = cache.get(f"task_description_{task_id}")
+
+        if not task_description:
+            return self.send_message("❌ Task form configuration is missing.")
 
         try:
-            company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
-            raise NotFound("The specified company does not exist.") 
+            form_data = json.loads(task_description)  # Convert JSON string to dictionary
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON Parsing Error: {e}")
+            return self.send_message("❌ Task form configuration is invalid.")
 
-        # Check permissions
-        has_permission(
-            user=self.request.user,
-            company=company,
-            app_name="bsf",
-            model_name="NetUseStats",
-            action="view",
+        fields = form_data.get("fields", [])
+        if not fields:
+            return self.send_message("❌ No fields found in task form.")
+
+        # ✅ Get the current step dynamically
+        current_step = self.get_current_step(task_id)
+        print(f"🔄 Processing Step(s): {current_step} for Task {task_id}")
+
+        # ✅ Check if all fields are completed
+        if current_step >= len(fields):
+            return self.submit_task(task_id)
+
+        # ✅ Get the field for the current step
+        current_field = fields[current_step]
+        print(f"🔍 Current Field: {current_field}")
+
+        field_name = current_field.get("name")
+        if not field_name:
+            return self.send_message("❌ Field name is missing in the task form configuration.")
+
+        # ✅ Check if input exists in cache already
+        stored_value = cache.get(f"task_{self.user_id}_{task_id}_{field_name}")
+
+        # ✅ If user hasn't provided input yet, prompt them first
+        if not stored_value:
+            return self.ask_next_step(current_field)
+            
+        # ✅ Validate user input using the new function
+        validation_response = self.validate_user_input(current_field, task_id)
+        if validation_response:
+            return validation_response  # ✅ Return error message if validation fails
+
+        # ✅ If the user hasn't provided input yet, prompt them
+        if not cache.get(f"task_{self.user_id}_{task_id}_{field_name}"):
+            return self.ask_next_step(current_field)
+        
+        # ✅ Move to the next step **after validation**
+        self.set_next_step(task_id, current_step + 1)
+
+        # ✅ If more fields remain, prompt for the next field
+        if current_step + 1 < len(fields):
+            next_field = fields[current_step + 1]
+            return self.ask_next_step(next_field)
+    
+        # ✅ If all fields are completed, proceed to submission
+        return self.submit_task(task_id)
+
+
+    def validate_user_input(self, current_field, task_id):
+        """
+        Validates user input based on field type and constraints.
+        Returns an error message if validation fails; otherwise, stores input and proceeds.
+        """
+
+        # ✅ Extract field metadata
+        field_name = current_field.get("name")
+        field_label = current_field.get("label")
+        field_type = current_field.get("type")
+        is_required = current_field.get("required", False)
+        is_multiple = current_field.get("multiple", False)
+        check_existence = current_field.get("checkIfExisit", None)
+
+        user_input = self.message.strip()
+
+        if field_type == "date":
+            print(f"📅 Validating Date: {user_input}")
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", user_input):
+                return self.send_message(f"❌ Invalid format! Please enter *{field_label}* in YYYY-MM-DD format.")
+
+        elif field_type == "decimal":
+            try:
+                float(user_input)
+            except ValueError:
+                return self.send_message(f"❌ Invalid input! Please enter a numeric value for *{field_label}*.")
+
+        elif field_type == "dropdown":
+            options = current_field.get("options", [])
+            if user_input.capitalize() not in options:
+                return self.send_message(f"❌ Invalid selection! Choose one of: {', '.join(options)} for *{field_label}*.")
+
+        elif field_type == "text" and is_required and not user_input:
+            return self.send_message(f"❌ {field_label} is required. Please enter a valid value.")
+
+        # ✅ Check existence if applicable
+        if check_existence:
+            if not self.validate_existence(field_name, check_existence, user_input):
+                return self.send_message(f"❌ {field_label} does not exist. Please enter a valid value.")
+
+        # ✅ Handle multiple inputs (if enabled)
+        if is_multiple:
+            stored_values = cache.get(f"task_{self.user_id}_{task_id}_{field_name}", [])
+            stored_values.append(user_input)
+            cache.set(f"task_{self.user_id}_{task_id}_{field_name}", stored_values)
+            return self.send_message(f"✅ Added '{user_input}' for *{field_label}*. Type 'NEXT' to proceed or enter another value.")
+
+        # ✅ Store user input for required fields
+        cache.set(f"task_{self.user_id}_{task_id}_{field_name}", user_input)
+
+        return None  # ✅ Validation passed, no error message needed
+
+    def get_current_step(self, task_id):
+        """
+        Retrieves the current step for a given task from the cache.
+        If not found, initializes it at step 0.
+        """
+        step_key = f"whatsapp_step_{self.user_id}_{task_id}"
+        print(f"🔍 Checking for Step: {step_key}")  # ✅ Debugging print
+        current_step = cache.get(step_key) 
+        print(f"🔄 Current Step from Cache is: {current_step}")  # ✅ Debugging print
+        
+        # ✅ Handle invalid string values like "start_task"
+        if isinstance(current_step, str) and not current_step.isdigit():
+            print(f"⚠️ Invalid step value ('{current_step}') found. Resetting Task {task_id} to Step 0.")
+            self.set_next_step(task_id, 0)  # Reset step
+            return 0  # Reset to the first step if conversion fails
+
+        try:
+            step_int = int(current_step)
+            print(f"🔍 Current Step for Task {task_id}: {step_int}")  # ✅ Debugging print 
+            return step_int
+        except ValueError:
+            print(f"⚠️ Step conversion failed. Resetting Task {task_id} to Step 0.")
+            self.set_next_step(task_id, 0)  # Reset step
+            return 0  # Reset to the first step if conversion fails
+
+    def set_next_step(self, task_id, next_step):
+        """
+        Updates the current step for a given task in the cache.
+        """
+        step_key = f"whatsapp_step_{self.user_id}_{task_id}"
+        cache.set(step_key, next_step, timeout=900)  # Keep task active for 15 minutes
+        print(f"✅ Step Updated: Task {task_id} -> Next Step: {next_step}")  # ✅ Debugging print
+
+         # ✅ Verify cache update
+        confirm_step = cache.get(step_key)
+        print(f"🔄 Step Confirmation from Cache: {confirm_step}")  # ✅ Ensure step is updated
+        if str(confirm_step) != str(next_step):
+            print(f"⚠️ Step update failed! Expected {next_step}, but got {confirm_step}. Retrying...")
+            cache.set(step_key, str(next_step), timeout=900)  # Retry cache update
+
+
+    def ask_next_step(self, field):
+        """
+        Sends the next question to the user based on the step and field attributes.
+        """
+
+        field_label = field["label"]
+        field_type = field["type"]
+        is_required = field.get("required", False)
+        is_multiple = field.get("multiple", False)
+
+        question_text = f"🔹 *{field_label}*: "
+
+        if field_type == "date":
+            question_text += "📅 Please enter the date (YYYY-MM-DD)."
+        elif field_type == "decimal":
+            question_text += "⚖️ Please enter a numeric value."
+        elif field_type == "text":
+            question_text += "✏️ Please enter a text value."
+        elif field_type == "dropdown":
+            options = ", ".join(field.get("options", []))
+            question_text += f"📋 Choose one: {options}."
+        elif field_type == "media":
+            question_text = "📸 Upload an image/video or type 'SKIP' to continue."
+
+        # ✅ Handle Multiple Inputs
+        if is_multiple:
+            question_text += "\n🛠️ You can add multiple values. Type 'NEXT' to proceed after adding all."
+
+        # ✅ Ensure Required Fields are Addressed
+        if is_required:
+            question_text += "\n*⚠️."
+
+        return self.send_message(question_text)
+
+
+    def validate_existence(self, field_name, check_conditions, user_input):
+        """
+        Checks if a field exists in the database before allowing input.
+        Dynamically validates model records based on given criteria.
+        """
+
+        model_name = check_conditions.get("model")
+        app_name = check_conditions.get("appName")
+        status = check_conditions.get("status", "active")  # Default to active status
+        search_field_template = check_conditions.get("search_field", "")
+
+        if not model_name or not app_name or not search_field_template:
+            print(f"⚠️ Missing validation details for {field_name}. Skipping existence check.")
+            return True  # ✅ Skip validation if details are incomplete
+
+        Model = apps.get_model(app_name, model_name)
+
+        # ✅ Replace wildcard (*) in field search template with actual user input
+        search_field = search_field_template.replace("*", user_input)
+
+        # ✅ Perform database query
+        record_exists = Model.objects.filter(**{search_field: user_input, "status": status}).exists()
+
+        if not record_exists:
+            print(f"❌ {field_name} validation failed. Value '{user_input}' does not exist in {model_name}.")
+        return record_exists
+
+
+    def process_whatsapp_task_step(self):
+        """
+        Handles step-by-step WhatsApp task data collection dynamically.
+        Ensures proper task step tracking and allows switching between tasks.
+        """
+        self.task_id = cache.get(f"task_{self.user_id}_id")
+
+        if not self.task_id:
+            return self.send_message("❌ No active task found. Please start with 'Start Task <TaskID>'.")
+        
+        # ✅ Set Task Lock (Prevents Interruption from Help Commands)
+        cache.set(f"whatsapp_task_active_{self.user_id}", True, timeout=900)  # Task is active for 15 minutes
+
+        
+        # ✅ Handle "Switch to Task" Command
+        if re.match(r"switch to task (\d+)", self.message, re.IGNORECASE):
+            new_task_id = re.search(r"switch to task (\d+)", self.message, re.IGNORECASE).group(1)
+            
+            # ✅ Update active task ID in cache
+            cache.set(f"task_{self.user_id}_id", new_task_id)
+            cache.set(f"whatsapp_step_{self.user_id}_{new_task_id}", "start_task")  # Reset step
+            
+            return self.send_message(f"🔄 Switched to Task {new_task_id}. Send 'Start Task {new_task_id}' to continue.")
+
+
+        # ✅ Retrieve the step associated with the current task
+        current_step = cache.get(f"whatsapp_step_{self.user_id}_{self.task_id}", "start_task")
+        
+
+        print(f"🔄 Processing Step: {current_step} for Task {self.task_id}")
+
+        if current_step == "start_task":
+            cache.set(f"whatsapp_step_{self.user_id}_{self.task_id}", "end_date")
+            return self.send_message("📅 Please enter the *End Date* (YYYY-MM-DD):")
+
+        elif current_step == "end_date":
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", self.message.strip()):
+                return self.send_message("❌ Invalid format! Please enter End Date in YYYY-MM-DD format.")
+
+            cache.set(f"task_{self.user_id}_{self.task_id}_end_date", self.message)
+            cache.set(f"whatsapp_step_{self.user_id}_{self.task_id}", "harvest_weight")
+            return self.send_message("⚖️ Please enter the *Harvest Weight (kg)*:")
+
+        elif current_step == "harvest_weight":
+            if not self.message.isdigit():
+                return self.send_message("❌ Invalid input! Please enter a numeric Harvest Weight (kg).")
+
+            cache.set(f"task_{self.user_id}_{self.task_id}_harvest_weight", self.message)
+            cache.set(f"whatsapp_step_{self.user_id}_{self.task_id}", "harvest_date")
+            self.send_message("📆 Please enter the *Harvest Date* (YYYY-MM-DD):")
+            return
+              
+
+        elif current_step == "harvest_date":
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", self.message.strip()):
+                return self.send_message("❌ Invalid format! Please enter Harvest Date in YYYY-MM-DD format.")
+
+            cache.set(f"task_{self.user_id}_{self.task_id}_harvest_date", self.message)
+            cache.set(f"whatsapp_step_{self.user_id}_{self.task_id}", "media")
+            self.send_message("📸 Send a *photo or video* (or type SKIP to continue).")
+            return
+              
+
+        elif current_step == "media":
+            if self.message.lower() == "skip":
+                cache.set(f"task_{self.user_id}_{self.task_id}_media", "None")
+            elif self.media_url:
+                cache.set(f"task_{self.user_id}_{self.task_id}_media", self.media_url)
+            else:
+                return self.send_message("📸 Upload a photo/video, or type 'SKIP' to continue.")
+
+            self.send_message("✅ Thanks! Submitting Task.....")  
+            return self.submit_task()
+
+        return self.send_message("❌ Invalid step.")
+    
+
+    def activate_task(self, task_id):
+        """
+        Activate a new task while ensuring previous tasks retain their progress.
+        """
+        cache.set(f"whatsapp_active_task_{self.sender_phone}", task_id)
+        cache.setdefault(f"whatsapp_step_{self.sender_phone}_{task_id}", "start_task")
+
+        return self.send_message(f"✅ Task {task_id} activated! Send 'Start Task {task_id}' to begin or continue.")
+
+    def extract_task_id(self):
+        """
+        Extracts the task ID from a WhatsApp message.
+        Also switches to a new task if the user specifies a different one.
+        """
+        match = re.search(r"task\s+(\d+)", self.message)
+        print(f"🔍 Extracted Task ID: {match.group(1)}" if match else "❌ No Task ID found.")
+        if match:
+            task_id = int(match.group(1))
+            self.activate_task(task_id)
+            return task_id
+        return None
+
+    def get_user_by_phone(self):
+        """
+        Retrieves the user based on phone number.
+        """
+        user_profile = UserProfile.objects.filter(phone=self.sender_phone).first()
+        return user_profile.user if user_profile else None
+
+    def extract_task_id(self):
+        """
+        Extracts the task ID from a WhatsApp message.
+        """
+        match = re.search(r"(?:start|switch to) task\s+(\d+)", self.message)
+        if match:
+            task_id = int(match.group(1))
+            print(f"🔄 Switching to Task {task_id}")
+            cache.set(f"task_{self.user_id}_id", task_id)  # Update active task
+            cache.set(f"whatsapp_step_{self.user_id}_{task_id}", 0)  # Ensure the new task starts fresh
+            return task_id
+        return None
+
+    def ask_next_steps(self, step):
+        
+        """
+        Guides the user through the form one step at a time.
+        """
+        questions = {
+            "end_date": "📅 Please enter the *End Date* (YYYY-MM-DD):",
+            "harvest_weight": "⚖️ Please enter the *Harvest Weight (kg)*:",
+            "harvest_date": "📆 Please enter the *Harvest Date* (YYYY-MM-DD):",
+            "media": "📸 Send a *photo or video* (or type SKIP to continue)."
+        }
+
+        if step in questions:
+            cache.set(f"whatsapp_task_step_{self.sender_phone}", step)
+            return self.send_message(questions[step])
+
+        return self.send_message("❌ Invalid step.")
+
+    def send_message(self, message_body):
+        """
+        Sends a WhatsApp message to the user.
+        """
+        TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
+        TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        TWILIO_PHONE_NUMBER = config("TWILIO_SANDBOX_PHONE_NUMBER")
+
+        client.messages.create(
+            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+            to=f"whatsapp:{self.sender_phone}",
+            body=message_body
         )
 
-        queryset = NetUseStats.objects.filter(company=company)
+        print(f"📤 Sent WhatsApp Message to {self.sender_phone}: {message_body}")
+        return Response({"message": "WhatsApp message sent"}, status=200)
 
-        # If farm_id is specified, filter by farm
-        if farm_id:
-            queryset = queryset.filter(farm_id=farm_id)
+    def submit_task(self):
+        """
+        Submits the collected task form data.
+        """
+        try:
 
-        return queryset
-
-
-
-
-Requirements: create slice, state, component etc to edit NetUseStats from endpoint.
-
-            endpoint url : `${backendUrl}/api/bsf/net-use-stats/<int:pk>/
-
-            Patch request
-
-            script type : typeScript 
-
-            <int:pk> = NetUseStats.id = id
-
-            accessToken needed and shall be requested in the slice through rootstate.
-
-            sample of data retured in sucessfull request :
-                [
-                    {
-                        
-                        "lay_end": date with  now as default,
-                        "stats": "completed",
-                        "harvest_weight": 3,
-                        "batch": 1,
-                        "company": 5,
-                        "farm": 8
-
-                        # Dynamic 
-                        "media_title_0": title,
-                        "media_file_0": file,
-                        "media_comments_0": 5,
-                        "media_title_1": 4,
-                        "media_file_1": file,
-                        "media_comments_1": 5,
-                        "media_title_2": 4,
-                        "media_file_2": file,
-                        "media_comments_2": 5,
-                    }
-                ]
-
-                try {
-                    const formData = new FormData();
-                    formData.append('company', companyId.toString());
-                    formData.append('farm', farmId.toString());
-                    formData.append('batch', batchId.toString());
-                    formData.append('harvest_weight', harvest_weight.toString());
-                    formData.append('lay_end', lay_end);
-                    formData.append('stats', stats);
-
-                    // Flatten the media array into individual formData keys
-                    media.forEach((item, index) => {
-                      formData.append(`media_title_${index}`, item.title);
-                      formData.append(`media_file_${index}`, item.file);
-                      if (item.comments) {
-                        formData.append(`media_comments_${index}`, item.comments);
-                      }
-                    });
-
-
-                All media will be sent as flat structure of media files and related metadata, so we can dynamically extract 
-                the indices from the keys in the request data and then group the values by matching indices 
-
-            Important Instruction:
-                1.  The changes should be made in the existing class/codes, preserving the original implementation structure. 
-                2.  Provide the complete updated files for my project:  
-                        Each file should include existing code, along with modifications or additions due to the new requirements. 
-                        Allowing for easy  Copy and paste of these files into my project to replace the existing ones.
-
+            end_date = cache.get(f"task_{self.user_id}_{self.task_id}_end_date", "")
+            harvest_weight = cache.get(f"task_{self.user_id}_{self.task_id}_harvest_weight", "")
+            harvest_date = cache.get(f"task_{self.user_id}_{self.task_id}_harvest_date", "")
+            media_url  = cache.get(f"task_{self.user_id}_{self.task_id}_media")
             
+            print(f"📤 Submitting Task Data: {end_date}, {harvest_weight}, {harvest_date}, {media_url }")
 
-            Existing data:
+            # ✅ Validate if all required fields are collected before submission
+            if not end_date or not harvest_weight or not harvest_date:
+                return self.send_message("❌ Some task fields are missing. Please complete all steps.")
+
+            # ✅ Try downloading media
+            media_file = None
+            if media_url:
+                print(f"📥 Downloading media from Twilio: {media_url}")
+                media_file = download_media_from_twilio(media_url)
+
+                if not media_file:
+                    print("⚠️ No media file was saved. Proceeding without media.")
+
+            task = Task.objects.get(id=self.task_id)
+            if not task:
+                return self.send_message("❌ Task not found. Please start a valid task.")
+            
+            userInstance = User.objects.get(id=self.user_id)
+            # Save media if provided
+
+            # ✅ Submit the task completion data
+
+            media_obj = Media.objects.create( 
+                    company=task.company,
+                    branch=task.branch,
+                    app_name=task.appName,
+                    model_name=task.modelName,
+                    file=media_file,  # Save downloaded file,
+                    status="active",
+                    model_id=task.id,
+                    uploaded_by=userInstance,
+                )
+            
+            print(f"📤 Media saved successfully: {media_obj.file.name}")
+
+         
+
+            # Create new task data in the model
+            task.completed_by = userInstance
+            task.status = "pending"
+            task.save()
+
+            print(f"📤 Task Submission Complete: {end_date}, {harvest_weight}, {harvest_date}, {media_url}")
+
+
+             # ✅ Inform user that submission is in progress
+            self.send_message("✅ Task submitted! Sending for approval.")
+
+            # ✅ Clear session-related caches after task submission
+            cache.delete(f"whatsapp_step_{self.user_id}_{self.task_id}")  # ✅ Clear step tracking
+            cache.delete(f"task_{self.user_id}_id")  # ✅ Clear active task ID
+            cache.delete(f"whatsapp_task_active_{self.user_id}")  # ✅ Clear active task flag
+
+            return Response({"message": "Task successfully submitted"}, status=200)
+
+        except Exception as e:
+            print(f"❌ Error in submit_task: {e}")
+            return Response({"error": "Task submission failed"}, status=500)
+
+    def handle_task_retrieval(user, message):
+
+        print(f"🔍 User: {user.id if hasattr(user, 'email') else 'Unknown User'}")
+        """
+        Retrieves a user's active tasks with filtering options (e.g., past, completed, pending).
+        """
+        # ✅ Ensure the user is authenticated
+        if not user or user.is_anonymous:
+            return WhatsAppUtils.send_message(get_user_phone(user), "❌ Authentication failed. Please log in first.")
+
+        # ✅ Parse user query (e.g., "Show Tasks Past", "Show Tasks Completed")
+        filters = message.lower().replace("My tasks", "").strip()
+
+        # ✅ Set default filters for active tasks
+        query_params = {}
+
+
+        # ✅ Handle filtering options
+        if "mine" in filters:
+            query_params["role"] = "owner"
+        if "past" in filters:
+            query_params["owner"] = "past"
+        if "past" in filters:
+            query_params["status"] = "past"
+        elif "completed" in filters:
+            query_params["status"] = "completed"
+        elif "active" in filters:
+            query_params["status"] = "active"
+        elif "approved" in filters:
+            query_params["status"] = "approved"
+        elif "owner" in filters:
+            query_params["assigned_to"] = user.id
+        elif "assistant" in filters:
+            query_params["assistant"] = user.id
+        elif "week" in filters:
+            query_params["date_range"] = "week"
+        elif "month" in filters:
+            query_params["date_range"] = "month"
+        elif "year" in filters:
+            query_params["date_range"] = "year"
+
+        
+        # ✅ Handle custom date range filtering (e.g., "My Task from 2024-01-01 to 2024-02-01")
+        date_range_match = re.search(r"from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})", filters)
+        if date_range_match:
+            query_params["start_date"] = date_range_match.group(1)
+            query_params["end_date"] = date_range_match.group(2)
+
+        # ✅ Handle pagination (e.g., "Show next 5 tasks")
+        page_match = re.search(r"show next (\d+) tasks", filters)
+        page_size = int(page_match.group(1)) if page_match else 5  # Default to 5 tasks per page
+        query_params["page_size"] = page_size
+
+         # ✅ Print query parameters for debugging
+        print(f"🔍 Task Query Params: {query_params}")
+        print(f"🔍 User: {user.email if hasattr(user, 'email') else 'Unknown User'}")
+
+        # ✅ Fetch tasks using WhatsAppTaskFetcher
+        tasks = WhatsAppTaskFetcher.get_filtered_tasks(user, query_params)
+
+        # ✅ Handle errors
+        if "error" in tasks:
+            return WhatsAppUtils.send_message(get_user_phone(user), tasks["error"])
+
+        # ✅ Handle empty task list
+        if not tasks:
+            return WhatsAppUtils.send_message(get_user_phone(user), "📋 No tasks found.")
+
+
+        # ✅ Format task response for WhatsApp
+        task_list_message = "📋 *Your Tasks:*\n\n"
+        for task in tasks[:15]:  # Limit response to 15 tasks. Need to revise so user can click on next to see more tasks
+            due_date = datetime.datetime.strptime(task['due_date'], "%Y-%m-%dT%H:%M:%SZ").strftime("%A, %B %d")
+            task_list_message += f"📌 *{task['title']}*\n🗓️ Due: {due_date}\n🔍 Status: {task['status']}\n"
+            if task['status'] == 'active':
+                task_list_message += f"📋 Start Task {task['id']}\n"
+            task_list_message += "\n"
+
+        task_list_message += f"📌 Reply with 'Start Task <task id>' to begin a task."
+
+        return WhatsAppUtils.send_message(get_user_phone(user), task_list_message)
+
+
+  

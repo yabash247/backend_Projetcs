@@ -13,7 +13,7 @@ from company.utils import check_user_exists, get_associated_media, PointsRewardS
 import logging
 from django.apps import apps
 from django.utils.timezone import now
-from datetime import timedelta
+from datetime import timedelta, datetime
 from .models import ActivityOwner
 from django.core.mail import send_mail
 from django.db.models import Q, F
@@ -762,6 +762,7 @@ class TaskListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        
         """
         Fetch tasks based on user, company, branch, status query parameters,
         and annotate late task information if the user is an assistant.
@@ -934,6 +935,126 @@ class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
+
+
+class TaskListCreateView(generics.ListCreateAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Fetch tasks for logged-in users with filters for:
+        - Past tasks
+        - Completed tasks
+        - Approved tasks
+        - Assistant tasks
+        - Date, week, month, year filters
+        """
+        user = self.request.user
+        queryset = Task.objects.all()
+
+        # ✅ Get query parameters
+        status_param = self.request.query_params.get("status")
+        task_type = self.request.query_params.get("task_type")  # assistant, completed, approved
+        date_filter = self.request.query_params.get("date")  # YYYY-MM-DD
+        week_filter = self.request.query_params.get("week")  # YYYY-WK (ISO format)
+        month_filter = self.request.query_params.get("month")  # YYYY-MM
+        year_filter = self.request.query_params.get("year")  # YYYY
+        past_tasks = self.request.query_params.get("past", "false").lower() == "true"
+
+        # ✅ Fetch tasks assigned to the user
+        queryset = queryset.filter(assigned_to=user)
+
+        # ✅ Filter for past tasks
+        if past_tasks:
+            queryset = queryset.filter(due_date__lt=now())
+
+        # ✅ Filter by task type
+        if task_type == "assistant":
+            queryset = queryset.filter(assistant=user)
+        elif task_type == "completed":
+            queryset = queryset.filter(status="completed", completed_by=user)
+        elif task_type == "approved":
+            queryset = queryset.filter(status="approved")
+
+        # ✅ Filter by date
+        if date_filter:
+            try:
+                date_value = datetime.strptime(date_filter, "%Y-%m-%d").date()
+                queryset = queryset.filter(due_date=date_value)
+            except ValueError:
+                raise ValidationError("Invalid date format. Use YYYY-MM-DD.")
+
+        # ✅ Filter by week (ISO Format)
+        if week_filter:
+            try:
+                year, week = map(int, week_filter.split("-W"))
+                queryset = queryset.filter(due_date__year=year, due_date__week=week)
+            except ValueError:
+                raise ValidationError("Invalid week format. Use YYYY-WK (ISO format).")
+
+        # ✅ Filter by month
+        if month_filter:
+            try:
+                year, month = map(int, month_filter.split("-"))
+                queryset = queryset.filter(due_date__year=year, due_date__month=month)
+            except ValueError:
+                raise ValidationError("Invalid month format. Use YYYY-MM.")
+
+        # ✅ Filter by year
+        if year_filter:
+            try:
+                year = int(year_filter)
+                queryset = queryset.filter(due_date__year=year)
+            except ValueError:
+                raise ValidationError("Invalid year format. Use YYYY.")
+
+        # ✅ Filter by status
+        if status_param:
+            valid_status_choices = [choice[0] for choice in Task.STATUS_CHOICES]
+            if status_param not in valid_status_choices:
+                raise ValidationError(
+                    {"status": f"Invalid status '{status_param}'. Valid options: {', '.join(valid_status_choices)}."}
+                )
+            queryset = queryset.filter(status=status_param)
+
+        # ✅ Return annotated task list
+        return self.annotate_tasks(queryset)
+
+    def annotate_tasks(self, queryset):
+        """
+        Annotate each task with its associated activity.
+        """
+        tasks_with_activity = []
+        for task in queryset:
+            associated_activity = ActivityOwner.objects.filter(
+                branch=task.branch,
+                activity=task.activity,
+                appName=task.appName,
+                modelName=task.modelName,
+                company=task.company,
+            ).first()
+            task_data = TaskSerializer(task).data  # Serialize task data
+            if associated_activity:
+                task_data["associated_activity"] = ActivityOwnerSerializer(associated_activity).data
+            else:
+                task_data["associated_activity"] = None
+            tasks_with_activity.append(task_data)
+
+        return tasks_with_activity
+
+    def list(self, request, *args, **kwargs):
+        """
+        Override the list method to return the annotated queryset as a response.
+        """
+        queryset = self.get_queryset()
+        return Response(queryset)
+
+    def perform_create(self, serializer):
+        """
+        Create a new task.
+        """
+        serializer.save()
 
 
 # create custom task 

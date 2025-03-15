@@ -64,3 +64,10 @@ from .views import WhatsAppTaskView
 urlpatterns += [
     path('whatsapp/task/', WhatsAppTaskView.as_view(), name='whatsapp-task'),
 ]
+
+from .views import WhatsAppTaskTest
+urlpatterns += [
+    path('whatsapp/test/', WhatsAppTaskTest.as_view(), name='whatsapp-test'),
+]
+
+

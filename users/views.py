@@ -198,6 +198,8 @@ class WhatsAppView(APIView):
         sender_phone = sender.replace("whatsapp:", "").strip()
         self.media_url = request.data.get("MediaUrl0")
 
+        print(f"Received message from {sender_phone}: {message}")
+
         if message.lower().startswith("help"):
             help_handler = WhatsAppHelpHandler(sender_phone, message)
             return help_handler.process_help_request()
@@ -232,17 +234,25 @@ class WhatsAppView(APIView):
             cache.delete(f"whatsapp_login_state_{sender_phone}")  # ✅ Login process ends
             return response
         
+        # ✅ Step 6: Handle Task Retrieval with Filters
+        if message.lower().startswith("show tasks") or message.lower().startswith("my task"):
+            print("Starts with My Task")
+            return WhatsAppTaskHandler.handle_task_retrieval(user, message)
+        
         # ✅ Step 8: If a task is active, do NOT validate input
         active_task = cache.get(f"whatsapp_task_active_{user_id}", None)
         if active_task:
             task_handler = WhatsAppTaskHandler(request)  # ✅ Initialize first to set `task_id`
-            return task_handler.process_whatsapp_task_step()  # ✅ Process task actions
+            #return task_handler.process_whatsapp_task_step()  # ✅ Process task actions
+            return task_handler.process_task_step()  # ✅ Process task actions
         
         # ✅ Step 9: If a login request is detected, process it
         if message.lower().startswith("start task"):
-             task_handler = WhatsAppTaskHandler(request)  # ✅ Initialize first to set `task_id`
-             #print(task_handler.user_id)
-             return task_handler.process_whatsapp_task_step()  # ✅ Now call function
+            task_handler = WhatsAppTaskHandler(request)  # ✅ Initialize first to set `task_id`
+            #print(task_handler.user_id)
+            #return task_handler.process_whatsapp_task_step()  # ✅ Now call function
+            return task_handler.process_task_step()  # ✅ Process task actions
+        
         
         
         # ✅ Validate Input - Return error if not part of recognized actions or active session
