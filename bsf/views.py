@@ -3030,7 +3030,7 @@ class WhatsAppTaskTest(APIView):
     """
 
     def post(self, request, *args, **kwargs):
-        processed = {'set_date': '2025-03-10', 'Start_Weight': '5', 'pond_name': 'a2', 'net_condition': 'good', 'media': ''}
+        processed = {'end_date': '2025-03-10', 'harvest_weight': '5.9', 'pond_name': 'a2', 'status': 'pending', 'media': 'hope'}
         task_id = 55
         user_id = 2
         PondUseStats_whatsapp(task_id, processed, user_id)
